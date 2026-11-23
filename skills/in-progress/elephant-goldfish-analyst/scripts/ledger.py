@@ -18,6 +18,39 @@ import argparse, csv, hashlib, json, os, random, subprocess, sys, time
 from pathlib import Path
 
 WS = Path(os.environ.get("EG_WORKSPACE", "analysis"))
+
+# category -> kind -> (what it claims, the evidence that can falsify it). Descriptive says what
+# happened; the three inferential categories say why, what next, and what to do.
+TYPES = {
+    "descriptive": {
+        "level": ("size or rate of a quantity over a period", "recomputed on the holdout; falsified by a magnitude threshold"),
+        "trend": ("direction and pace of change over time", "slope sign and size with an autocorrelation-aware interval"),
+        "seasonality": ("a recurring calendar pattern", "holds in a stated share of holdout cycles"),
+        "composition": ("shares or mix across segments", "share thresholds that hold period by period"),
+        "comparison": ("segment A differs from segment B", "effect size plus a test, and consistency across periods"),
+        "distribution": ("spread, skew or concentration (Pareto)", "quantile or top-share thresholds"),
+        "anomaly": ("a point or period far from its expected value", "deviation beyond k robust SDs of a baseline fit without it"),
+        "change-point": ("a break in level or trend at a date", "a break test, with stability on both sides"),
+    },
+    "diagnostic": {
+        "attribution": ("which components account for a change (mix vs rate, price vs volume, segments)", "the decomposition recomputed; falsified if another component dominates"),
+        "driver": ("an outcome moves with a candidate driver", "an autocorrelation-aware null; reported as association, never cause"),
+        "causal": ("an event or intervention changed the outcome", "a design (diff-in-diff, event study, discontinuity, experiment) plus a placebo that must come out null"),
+        "root-cause": ("why a specific anomaly happened", "the explanation implies something else checkable, and that implication holds"),
+    },
+    "predictive": {
+        "forecast": ("future values of a quantity", "out-of-time error beats a naive baseline; retested prospectively"),
+        "leading-indicator": ("X now predicts Y later", "out-of-time gain over Y's own history"),
+        "classification": ("which units or periods fall in a class", "out-of-sample accuracy or AUC beats the base rate"),
+        "timing": ("when an event (a peak, a threshold crossing) will happen", "hit rate beats a naive timing rule"),
+    },
+    "prescriptive": {
+        "policy": ("a rule (order, staff, price) beats the status quo", "backtested payoff against the stated status-quo rule, objective and costs stated"),
+        "allocation": ("how to split a resource across segments", "backtested payoff against a proportional or naive split"),
+        "trigger": ("act when a metric crosses a value", "backtested precision and recall against alternative triggers"),
+    },
+}
+RESTS_ON = {"prescriptive": ("predictive", "diagnostic")}
 LEDGER = WS / "LEDGER.jsonl"
 
 
@@ -149,7 +182,18 @@ def cmd_register(a):
     check_data()
     if find("register", a.id):
         die(f"{a.id} already registered; claims are immutable, register a new id")
+    if a.kind not in TYPES[a.category]:
+        die(f"unknown {a.category} kind {a.kind!r}; `ledger.py types` lists them")
+    parents = [x for x in (a.rests_on or "").split(",") if x]
+    for pid in parents:
+        if not find("register", pid):
+            die(f"--rests-on {pid} is not registered")
+    if a.category in RESTS_ON:
+        ok = [pid for pid in parents if find("register", pid)[0].get("category") in RESTS_ON[a.category]]
+        if not ok:
+            die(f"a {a.category} claim must rest on a registered {' or '.join(RESTS_ON[a.category])} claim (--rests-on)")
     append("register", id=a.id, claim=a.claim, prediction=a.prediction, falsify_if=a.falsify_if,
+           category=a.category, insight_kind=a.kind, rests_on=parents,
            decision=a.decision, min_fresh=a.min_fresh, test=str(a.test), test_sha=sha(a.test),
            review=str(a.review) if a.review else None, review_sha=sha(a.review) if a.review else None)
     print(f"{a.id} registered; test frozen at {sha(a.test)[:12]}")
@@ -277,10 +321,15 @@ def cmd_retest(a):
             continue
         held = result["verdict"] == find("run", hid)[0]["result"]["verdict"]
         append("retest", id=hid, window=window, result=result, held=held, stdout_sha=out_sha)
-        print(f"{hid}: fresh {result['verdict']} -> {'HELD' if held else 'BROKE'}  {json.dumps(result)}")
+        flip = "BROKE" if result["verdict"] == "falsified" else "REVIVED"
+        print(f"{hid}: fresh {result['verdict']} -> {'HELD' if held else flip}  {json.dumps(result)}")
 
 
 def status(hid):
+    reg = find("register", hid)
+    for pid in (reg[0].get("rests_on") or []) if reg else []:
+        if not status(pid).startswith("established"):
+            return f"blocked: rests on {pid} ({status(pid)})"
     run = find("run", hid)
     if not run:
         return "registered"
@@ -300,8 +349,40 @@ def status(hid):
         st += " (narrowed)"
     rt = [r for r in find("retest", hid) if "held" in r]
     if rt:
-        st += ", held on fresh data" if rt[-1]["held"] else ", BROKE on fresh data"
+        flipped = "BROKE on fresh data" if base == "survived" else "REVIVED on fresh data (recheck it)"
+        st += ", held on fresh data" if rt[-1]["held"] else f", {flipped}"
     return st
+
+
+def cmd_waive(a):
+    cat, _, kind = a.type.partition("/")
+    if cat not in TYPES or (kind and kind not in TYPES[cat]):
+        die(f"unknown type {a.type!r}; `ledger.py types` lists them")
+    append("waive", category=cat, insight_kind=kind or None, reason=a.reason)
+    print(f"waived {a.type}: {a.reason}")
+
+
+def cmd_types(a):
+    for cat, kinds in TYPES.items():
+        print(f"{cat}" + (f"  (must rest on: {' or '.join(RESTS_ON[cat])})" if cat in RESTS_ON else ""))
+        for k, (what, ev) in kinds.items():
+            print(f"  {k:18} {what}\n  {'':18} evidence: {ev}")
+
+
+def coverage():
+    regs = [e for e in entries() if e["kind"] == "register"]
+    waived = [e for e in entries() if e["kind"] == "waive"]
+    lines = ["## Coverage", "", "| category | kind | claims | waived |", "|---|---|---|---|"]
+    for cat, kinds in TYPES.items():
+        cat_waive = [w["reason"] for w in waived if w["category"] == cat and not w.get("insight_kind")]
+        for k in kinds:
+            ids = [f"{r['id']} ({status(r['id'])})" for r in regs if r.get("category") == cat and r.get("insight_kind") == k]
+            w = cat_waive + [x["reason"] for x in waived if x["category"] == cat and x.get("insight_kind") == k]
+            lines.append(f"| {cat} | {k} | {'; '.join(ids) or ('' if w else '**not covered**')} | {'; '.join(w)} |")
+    untyped = [r["id"] for r in regs if not r.get("category")]
+    if untyped:
+        lines += ["", f"Untyped claims (registered before types existed): {', '.join(untyped)}."]
+    return lines
 
 
 def cmd_verify(a):
@@ -330,29 +411,43 @@ def cmd_report(a):
     if ext:
         lines.append(f"Fresh window: {ext[-1]['fresh_from']}..{ext[-1]['fresh_to']} ({ext[-1]['fresh_rows']} rows, "
                      f"`#{ext[-1]['seq']}`); {ext[-1]['revised_rows']} sealed rows revised at source.")
-    lines += ["", "| id | status | claim | decision it informs | falsified if | holdout result | goldfish | fresh data |",
-              "|---|---|---|---|---|---|---|---|"]
-    for r in [e for e in entries() if e["kind"] == "register"]:
-        run = find("run", r["id"])
-        res = f"`#{run[0]['seq']}` " + ", ".join(f"{k}={v}" for k, v in run[0]["result"].items() if k != "verdict") if run else ""
-        fish = "; ".join(f"`#{g['seq']}` {g['result']['verdict']}" + (f" (narrowed: {g['narrowed']})" if g.get("narrowed") else "")
-                         for g in find("goldfish", r["id"]))
-        rt = find("retest", r["id"])
-        fr = ""
-        if rt:
-            x = rt[-1]
-            fr = f"`#{x['seq']}` {x['window']}: " + (f"pending ({x['pending']})" if "pending" in x else
-                 x["result"]["verdict"] + ", " + ", ".join(f"{k}={v}" for k, v in x["result"].items() if k != "verdict"))
-        if not r.get("review") and "decision" in r:
-            fish += " (claim not reviewed before registration)"
-        lines.append(f"| {r['id']} | **{status(r['id'])}** | {r['claim']} | {r.get('decision') or ''} | {r['falsify_if']} | {res} | {fish} | {fr} |")
+    regs = [e for e in entries() if e["kind"] == "register"]
+    for cat in list(TYPES) + [None]:
+        group = [r for r in regs if r.get("category") == cat]
+        if not group:
+            continue
+        lines += ["", f"## {cat.capitalize() if cat else 'Untyped'}", "",
+                  "| id | kind | status | claim | decision it informs | falsified if | holdout result | goldfish | fresh data |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        lines += [row(r) for r in group]
+    lines += [""] + coverage()
     lines += ["", "Statuses: **established** = survived holdout, replayed byte-identical, every goldfish agrees. "
               "**refuted** = falsified and confirmed the same way. **(narrowed)** = a goldfish found the claim holds only in a "
               "narrower reading; quote the narrowed version. **held / BROKE on fresh data** = the frozen test rerun on rows "
-              "published after the seal. Anything else is not yet an insight."]
+              "published after the seal. **blocked** = a prescriptive claim whose supporting claim is not established. "
+              "Anything else is not yet an insight."]
     out = WS / "INSIGHTS.md"
     out.write_text("\n".join(lines) + "\n")
     print(out.read_text())
+
+
+def row(r):
+    run = find("run", r["id"])
+    res = f"`#{run[0]['seq']}` " + ", ".join(f"{k}={v}" for k, v in run[0]["result"].items() if k != "verdict") if run else ""
+    fish = "; ".join(f"`#{g['seq']}` {g['result']['verdict']}" + (f" (narrowed: {g['narrowed']})" if g.get("narrowed") else "")
+                     for g in find("goldfish", r["id"]))
+    rt = find("retest", r["id"])
+    fr = ""
+    if rt:
+        x = rt[-1]
+        fr = f"`#{x['seq']}` {x['window']}: " + (f"pending ({x['pending']})" if "pending" in x else
+             x["result"]["verdict"] + ", " + ", ".join(f"{k}={v}" for k, v in x["result"].items() if k != "verdict"))
+    if not r.get("review") and "decision" in r:
+        fish += " (claim not reviewed before registration)"
+    kind = r.get("insight_kind") or ""
+    if r.get("rests_on"):
+        kind += f" (rests on {', '.join(r['rests_on'])})"
+    return f"| {r['id']} | {kind} | **{status(r['id'])}** | {r['claim']} | {r.get('decision') or ''} | {r['falsify_if']} | {res} | {fish} | {fr} |"
 
 
 def main():
@@ -366,6 +461,9 @@ def main():
     r = s.add_parser("register"); r.add_argument("id"); r.add_argument("--claim", required=True)
     r.add_argument("--prediction", required=True); r.add_argument("--falsify-if", required=True)
     r.add_argument("--test", required=True)
+    r.add_argument("--category", required=True, choices=list(TYPES))
+    r.add_argument("--kind", required=True, help="a kind within the category; `ledger.py types` lists them")
+    r.add_argument("--rests-on", help="comma-separated claim ids this claim depends on (required for prescriptive)")
     r.add_argument("--decision", required=True, help="the decision this claim would change if it holds")
     r.add_argument("--min-fresh", type=int, help="fresh rows needed before `retest` may judge this claim")
     r.add_argument("--review", help="the critic goldfish's review of this claim, saved before registering")
@@ -376,7 +474,9 @@ def main():
     g.add_argument("--narrowed", help="the narrower reading under which the goldfish found the claim holds")
     s.add_parser("extend").add_argument("data")
     s.add_parser("retest").add_argument("id", help="a claim id, or `all`")
-    s.add_parser("verify"); s.add_parser("report")
+    w = s.add_parser("waive"); w.add_argument("type", help="category or category/kind")
+    w.add_argument("--reason", required=True, help="why this data cannot support that type")
+    s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
     globals()[f"cmd_{a.cmd}"](a)
 
