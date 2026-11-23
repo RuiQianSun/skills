@@ -78,9 +78,12 @@ def cmd_init(a):
     with open(a.data, newline="") as f:
         rows = list(csv.reader(f))
     header, body = rows[0], rows[1:]
-    rng = random.Random(a.seed)
     idx = list(range(len(body)))
-    rng.shuffle(idx)
+    if a.order_by:  # time series: explore the past, confirm on the future
+        col = header.index(a.order_by)
+        idx.sort(key=lambda i: body[i][col])
+    else:
+        random.Random(a.seed).shuffle(idx)
     cut = int(len(idx) * a.explore_fraction)
     for name, part in (("explore", idx[:cut]), ("holdout", idx[cut:])):
         with open(WS / f"{name}.csv", "w", newline="") as f:
@@ -88,7 +91,8 @@ def cmd_init(a):
             w.writerow(header)
             w.writerows(body[i] for i in sorted(part))
     e = append("init", source=str(a.data), source_sha=sha(a.data), seed=a.seed, rows=len(body),
-               columns=header, explore_rows=cut, holdout_rows=len(body) - cut,
+               columns=header, split=f"ordered by {a.order_by}" if a.order_by else "random",
+               explore_until=body[idx[cut - 1]][header.index(a.order_by)] if a.order_by else None, explore_rows=cut, holdout_rows=len(body) - cut,
                explore_sha=sha(WS / "explore.csv"), holdout_sha=sha(WS / "holdout.csv"))
     print(f"workspace {WS}: explore={cut} rows, holdout={len(body) - cut} rows, seed={a.seed}")
     print(f"elephant: explore on {WS}/explore.csv only. holdout is sealed for registered tests.")
@@ -199,6 +203,7 @@ def main():
     s = p.add_subparsers(dest="cmd", required=True)
     i = s.add_parser("init"); i.add_argument("data"); i.add_argument("--seed", type=int, default=20261123)
     i.add_argument("--explore-fraction", type=float, default=0.5)
+    i.add_argument("--order-by", help="column to sort by for a time split (explore earliest rows, hold out the latest)")
     r = s.add_parser("register"); r.add_argument("id"); r.add_argument("--claim", required=True)
     r.add_argument("--prediction", required=True); r.add_argument("--falsify-if", required=True)
     r.add_argument("--test", required=True)

@@ -17,7 +17,7 @@ The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the
 
 ## The loop
 
-1. **Init.** `ledger.py init <data.csv>` splits the data once, by a recorded seed, into `explore.csv` and `holdout.csv`. From here you read `explore.csv` only. The holdout is for registered tests, which is what makes their verdicts mean something.
+1. **Init.** `ledger.py init <data.csv>` splits the data once, by a recorded seed, into `explore.csv` and `holdout.csv`. For time series, pass `--order-by <date column>` so you explore the past and confirm on the future; a random split lets neighbouring months leak into each other. Before you init, check that a time index has no gaps and that merging sources dropped no rows: once sealed, a missing month silently turns every 12-row lag into a 13-month one. From here you read `explore.csv` only. The holdout is for registered tests, which is what makes their verdicts mean something.
 2. **Explore.** Profile `explore.csv` freely: distributions, missingness, correlations, group differences. Write down candidate claims as you go. Keep a count of how many things you looked at; it is your multiple-comparisons budget.
 3. **Sharpen.** Turn each candidate into a claim a stranger could test: a direction, an effect size, a statistic, and a threshold that would kill it. Set thresholds you would be embarrassed to miss (`falsified if Spearman rho < 0.4 or p > 0.01`), with a Bonferroni-style correction across everything you registered. Prefer three strong claims over ten weak ones. Register at least one claim you expect to fail: an analysis where nothing can be refuted has proven nothing.
 4. **Confirm.** For each claim: write `analysis/tests/<id>.py`, `register`, `run`, `replay`.
