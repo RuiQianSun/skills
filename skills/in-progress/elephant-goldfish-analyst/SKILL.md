@@ -1,31 +1,54 @@
 ---
 name: elephant-goldfish-analyst
-description: Analyse a dataset into testable, falsifiable, traceable, repeatable insights. An elephant agent holds the full context and an append-only evidence ledger; fresh-context goldfish subagents re-test each claim blind. Use when the user wants insights, findings, or a data analysis they can trust, check, or rerun.
+description: Analyse a dataset into testable, falsifiable, traceable, repeatable insights. An elephant agent holds the full context and an append-only evidence ledger; fresh-context goldfish subagents critique each claim before it is tested and re-test it blind after. For time series, claims are re-tested on every new data release. Use when the user wants insights, findings, or a data analysis they can trust, check, or rerun, or wants insight generation automated.
 argument-hint: "A dataset path, plus an optional question"
 ---
 
-You are the **elephant**: you remember everything, so you are the one most likely to fool yourself. Every claim you make has to survive a **goldfish**: a subagent that remembers nothing, sees only the claim, and tests it from scratch. An **insight** is a claim that survived; everything else is a hunch, and you report it as one.
+You are the **elephant**: you remember everything, so you are the one most likely to fool yourself. Every claim you make has to survive **goldfish**: subagents that remember nothing, see only the claim, and attack or test it from scratch. An **insight** is a claim that survived and would change a decision; everything else is a hunch or trivia, and you report it as such.
 
-The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the evidence: you never write a result by hand, you make the ledger record it. Run it from the user's working directory; it writes to `./analysis/`. `python3 <skill>/scripts/ledger.py --help` lists the commands.
+The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the evidence: you never write a result by hand, you make the ledger record it. Run it from the user's working directory; it writes to `./analysis/`. `python3 <skill>/scripts/ledger.py --help` lists the commands and the test-script contract.
 
-## The four properties, and what enforces each
+## What enforces each property
 
-- **Testable**: each claim ships with a test script that ends by printing one JSON line, `{"verdict": "survived" | "falsified", ...metrics}`. It reads the csv from env `DATA` and seeds every random draw from env `SEED`.
-- **Falsifiable**: before any confirmatory look, `register` the claim with its prediction and a concrete `--falsify-if` threshold, which freezes the test's hash. `run` executes it once on the sealed holdout. A changed test is a new claim with a new id.
-- **Traceable**: the ledger is hash-chained (`verify` checks it) and pins the data's hashes. `report` builds `analysis/INSIGHTS.md` from ledger entries alone, each figure citing its entry number.
-- **Repeatable**: `replay` reruns a claim and checks its output is byte-identical.
+- **Testable**: each claim ships with a test script that ends by printing one JSON line, `{"verdict": "survived" | "falsified", "scored_from": ..., ...metrics}`. It reads the csv from env `DATA`, seeds every random draw from env `SEED`, and, for time series, scores only rows at or after env `SCORE_FROM` (using earlier rows as history) and echoes it back.
+- **Falsifiable**: before any confirmatory look, `register` the claim with its prediction, a concrete `--falsify-if` threshold and the `--decision` it informs, which freezes the test's hash. `run` executes it once on the sealed holdout, within the `--budget` of holdout looks set at `init`. A changed test is a new claim with a new id, and it spends budget.
+- **Traceable**: the ledger is hash-chained (`verify` checks it) and pins every data file's hash. `report` builds `analysis/INSIGHTS.md` from ledger entries alone, each figure citing its entry number.
+- **Repeatable**: `replay` reruns a claim and checks its output is byte-identical. `retest` reruns the frozen test on data published after the seal.
 
 ## The loop
 
-1. **Init.** `ledger.py init <data.csv>` splits the data once, by a recorded seed, into `explore.csv` and `holdout.csv`. For time series, pass `--order-by <date column>` so you explore the past and confirm on the future; a random split lets neighbouring months leak into each other. Before you init, check that a time index has no gaps and that merging sources dropped no rows: once sealed, a missing month silently turns every 12-row lag into a 13-month one. From here you read `explore.csv` only. The holdout is for registered tests, which is what makes their verdicts mean something.
-2. **Explore.** Profile `explore.csv` freely: distributions, missingness, correlations, group differences. Write down candidate claims as you go. Keep a count of how many things you looked at; it is your multiple-comparisons budget.
-3. **Sharpen.** Turn each candidate into a claim a stranger could test: a direction, an effect size, a statistic, and a threshold that would kill it. Set thresholds you would be embarrassed to miss (`falsified if Spearman rho < 0.4 or p > 0.01`), with a Bonferroni-style correction across everything you registered. Prefer three strong claims over ten weak ones. Register at least one claim you expect to fail: an analysis where nothing can be refuted has proven nothing.
-4. **Confirm.** For each claim: write `analysis/tests/<id>.py`, `register`, `run`, `replay`.
-5. **Goldfish.** For each claim that ran, dispatch a goldfish: a subagent started with a **fresh context window** (never a fork of this conversation, since a fork inherits the memory the goldfish exists to lack). Run the goldfish in parallel, one per claim. Its whole prompt is the goldfish brief below, filled in; it gets no numbers, code, or reasoning of yours. Record each one with `ledger.py goldfish <id> --test analysis/goldfish/<id>.py --agent <name>`.
-6. **Reconcile.** A goldfish that disagrees has found something: a bug in your test, a claim worded more loosely than you tested it, or an effect that only exists for one way of measuring it. Read its script, decide which, and register a corrected claim under a new id rather than editing the old one. Disagreement stays in the ledger as `contested`.
-7. **Report.** `ledger.py verify`, then `ledger.py report`. Present `analysis/INSIGHTS.md` to the user: established insights first, refuted claims next (they are findings too), contested and hunches last, labelled as such. Every number you quote in prose comes from the report.
+1. **Know the domain.** Write `analysis/KNOWN.md`: what any practitioner in this domain already knows (for retail tyres, "winter is slow, changeover seasons peak"). Ask the user for it when they are the domain expert. A claim that only restates `KNOWN.md` is trivia: register it only if it quantifies something a decision needs.
+2. **Init.** `ledger.py init <data.csv> --budget <n>` audits the data (gaps, duplicate keys, empty cells) and refuses to seal a broken time index; fix the source rather than pass `--allow-gaps`. It then splits the data once into `explore.csv` and `holdout.csv`. For time series, pass `--order-by <date column>` so you explore the past and confirm on the future. Set the budget at about twice the claims you plan. From here you read `explore.csv` only.
+3. **Explore.** Profile `explore.csv` freely. Write down candidate claims as you go, and keep a count of how many things you looked at; it is your multiple-comparisons budget.
+4. **Sharpen.** Turn each candidate into a claim a stranger could test: a direction, an effect size, a statistic, a kill threshold, and the decision it would change. Set thresholds you would be embarrassed to miss, corrected across everything you register. Prefer three strong claims over ten weak ones, and register at least one you expect to fail.
+5. **Critique.** For each claim, dispatch a **critic** goldfish with the critic brief below. Save its reply to `analysis/reviews/<id>.md`. Tighten the claim where it lands a hit: wording broader than the test, a threshold a known fact clears for free, a decision the claim does not actually bear on.
+6. **Confirm.** For each claim: write `analysis/tests/<id>.py`, `register --review analysis/reviews/<id>.md` (for time series also `--min-fresh <rows>`, the fresh data a fair retest needs, such as 36 months for a claim about years), `run`, `replay`.
+7. **Test blind.** For each claim that ran, dispatch a **tester** goldfish with the tester brief below, all in parallel, one per claim. Where the harness lets you choose a model, run at least one tester on a different model from yours, so agreement is not one model's priors agreeing with themselves. Record each with `ledger.py goldfish <id> --test analysis/goldfish/<id>.py --agent <name>`, adding `--narrowed "<reading>"` when the tester reports one.
+8. **Reconcile.** A tester that disagrees has found something: a bug in your test, a claim worded more loosely than you tested it, or an effect that exists for only one way of measuring it. Read its script, decide which, and register a corrected claim under a new id rather than editing the old one. Disagreement stays in the ledger as `contested`.
+9. **Report.** `ledger.py verify`, then `ledger.py report`. Present `analysis/INSIGHTS.md`: established insights first (quoting the narrowed reading where there is one), each with the decision it informs; refuted claims next (they are findings too); contested claims and hunches last, labelled as such. Every number you quote in prose comes from the report.
+10. **Keep testing.** For time series, each new data release is a holdout nobody has seen. Pull it, then `ledger.py extend <new full file>` (it seals the new rows as `fresh.csv` and counts rows the source revised), `ledger.py retest all`, and `report`. A claim that **broke on fresh data** goes back to step 8. This step is what to schedule when the user wants the analysis to run on its own.
 
-## The goldfish brief
+Every goldfish is a subagent started with a **fresh context window**, never a fork of this conversation: a fork inherits the memory the goldfish exists to lack. Its whole prompt is its brief, filled in; it gets no numbers, code or reasoning of yours.
+
+## The critic brief
+
+```
+You are a goldfish critic: you know nothing about this analysis. Attack one claim before it is tested.
+
+Data columns: <column list> (<one line on what the data is>)
+What practitioners already know: <contents of analysis/KNOWN.md>
+Claim: <claim>
+It is falsified if: <falsify-if>
+Decision it should inform: <decision>
+
+Answer in four short lines:
+1. TRIVIAL: does a known fact already guarantee this passes? yes/no, why.
+2. WORDING: does the claim say more than the falsify-if checks? Quote the extra words.
+3. DECISION: would the decision really change on this result? yes/no, why.
+4. STRICTER: one sharper version of the claim worth testing instead, or "none".
+```
+
+## The tester brief
 
 ```
 You are a goldfish: you know nothing about this analysis. Test one claim, independently.
@@ -38,8 +61,10 @@ Write a Python script at <absolute path to analysis/goldfish/<id>.py> that reads
 path from env DATA, seeds all randomness from int(env SEED), chooses its own appropriate
 method, and ends by printing exactly one JSON line:
 {"verdict": "survived" or "falsified", "method": "...", plus the numbers you based it on}.
-Run it with DATA and SEED=1 set to check it works. Report the verdict and one sentence on
-anything about the claim that was ambiguous or that you had to interpret.
+Run it with DATA and SEED=1 set to check it works. Read no other files in that directory.
+Report the verdict and one sentence on anything about the claim that was ambiguous or that
+you had to interpret. If the claim holds only under a narrower reading than its words,
+give that reading on its own line starting NARROWED:.
 ```
 
-Pick the goldfish's method only by the claim text, so the brief carries the claim and the kill condition and nothing else. The ambiguity sentence is the most valuable part of its reply: it is how you learn that a claim you thought was sharp was not.
+The tester's ambiguity sentence and NARROWED line are the most valuable part of its reply: they are how you learn that a claim you thought was sharp was not.
