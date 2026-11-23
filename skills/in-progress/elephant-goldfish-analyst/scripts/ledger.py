@@ -51,6 +51,113 @@ TYPES = {
     },
 }
 RESTS_ON = {"prescriptive": ("predictive", "diagnostic")}
+FORWARD = ("predictive", "prescriptive")  # categories that must never peek at later rows
+
+# Static checks on a test script: (code, regex, applies to, message). "error" blocks registration.
+LINT = [
+    ("centred-window", r"center\s*=\s*True", FORWARD, "centred rolling window reads future rows"),
+    ("negative-shift", r"\.shift\(\s*(periods\s*=\s*)?-\s*\d", FORWARD, "negative shift pulls later rows backwards"),
+    ("backfill", r"\.bfill\(|backfill|method\s*=\s*['\"]bfill", FORWARD, "backfill copies later values into earlier rows"),
+    ("other-file", r"(read_csv|open|loadtxt|read_parquet)\(\s*[rf]?['\"]", None, "reads a hard-coded path; read only env DATA"),
+    ("workspace-file", r"(explore|holdout|fresh|retest)\.csv", None, "names a workspace file; read only env DATA"),
+]
+LINT_WARN = [
+    ("interpolate", r"\.interpolate\(", FORWARD, "interpolation can use later rows"),
+    ("centred-window", r"center\s*=\s*True", ("descriptive", "diagnostic"), "centred window: fine for describing the past, never for a forecast"),
+]
+
+
+def lint(path, category, ordered):
+    """Return (errors, warnings) as lists of 'code: message (line n)'."""
+    import re
+    src = Path(path).read_text()
+    lines = src.splitlines()
+
+    def scan(rules):
+        hits = []
+        for code, rx, cats, msg in rules:
+            if cats and category not in cats:
+                continue
+            for n, line in enumerate(lines, 1):
+                if re.search(rx, line.split("#")[0]):
+                    hits.append(f"{code}: {msg} (line {n})")
+        return hits
+
+    errors, warnings = scan(LINT), scan(LINT_WARN)
+    if ordered and "SCORE_FROM" not in src:
+        errors.append("score-from: ordered workspace, but the test never reads env SCORE_FROM")
+    if ordered and "scored_from" not in src:
+        errors.append("scored-from: the JSON output must echo scored_from")
+    if re.search(r"np\.random\.(rand|randn|choice|shuffle|permutation|normal|uniform)\(|\brandom\.(random|choice|shuffle|sample)\(", src) \
+            and "SEED" not in src:
+        errors.append("unseeded: draws random numbers without reading env SEED")
+    return errors, warnings
+
+
+# Mutants: copies of explore data with one structure destroyed. A test with teeth falsifies them.
+def _complete(header, body):
+    return [i for i, r in enumerate(body) if all(c.strip() not in ("", ".", "NA", "nan") for c in r)]
+
+
+def mutate(spec, header, body, key, rng):
+    name, _, arg = spec.partition(":")
+    body = [list(r) for r in body]
+    idx = _complete(header, body)  # leave rows with missing cells where they are
+    kc = header.index(key) if key else None
+    vals = [i for i in range(len(header)) if i != kc]
+    if name == "shuffle-rows":  # destroys time order, trend and seasonality
+        perm = idx[:]
+        rng.shuffle(perm)
+        src = {i: body[j][:] for i, j in zip(idx, perm)}
+        for i in idx:
+            for c in vals:
+                body[i][c] = src[i][c]
+    elif name in ("shuffle-months", "shuffle-years"):
+        if kc is None:
+            die(f"mutant {name} needs an ordered workspace")
+        by_year = {}
+        for i in idx:
+            by_year.setdefault(body[i][kc][:4], []).append(i)
+        if name == "shuffle-months":  # destroys within-year (seasonal) patterns, keeps annual totals
+            for rows in by_year.values():
+                perm = rows[:]
+                rng.shuffle(perm)
+                src = {i: body[j][:] for i, j in zip(rows, perm)}
+                for i in rows:
+                    for c in vals:
+                        body[i][c] = src[i][c]
+        else:  # destroys trend across years, keeps each year's seasonal shape
+            years = [y for y, r in by_year.items() if len(r) == 12]
+            perm = years[:]
+            rng.shuffle(perm)
+            src = {y: [body[i][:] for i in sorted(by_year[y], key=lambda i: body[i][kc])] for y in years}
+            for y, z in zip(years, perm):
+                for i, srow in zip(sorted(by_year[y], key=lambda i: body[i][kc]), src[z]):
+                    for c in vals:
+                        body[i][c] = srow[c]
+    elif name == "permute":  # destroys one column's link to everything else
+        if arg not in header:
+            die(f"mutant permute:{arg}: no such column")
+        c = header.index(arg)
+        col = [body[i][c] for i in idx]
+        rng.shuffle(col)
+        for i, v in zip(idx, col):
+            body[i][c] = v
+    elif name == "swap":  # trades two columns' identities
+        a, b = arg.split(",")
+        ca, cb = header.index(a), header.index(b)
+        for r in body:
+            r[ca], r[cb] = r[cb], r[ca]
+    else:
+        die(f"unknown mutant {name!r}; use shuffle-rows, shuffle-months, shuffle-years, permute:COL or swap:A,B")
+    return body
+
+
+def try_execute(script, data, seed, extra_env=None):
+    try:
+        return execute(script, data, seed, extra_env)[0], None
+    except SystemExit as err:
+        return None, str(err)[-300:]
 LEDGER = WS / "LEDGER.jsonl"
 
 
@@ -192,8 +299,53 @@ def cmd_register(a):
         ok = [pid for pid in parents if find("register", pid)[0].get("category") in RESTS_ON[a.category]]
         if not ok:
             die(f"a {a.category} claim must rest on a registered {' or '.join(RESTS_ON[a.category])} claim (--rests-on)")
+    m = meta()
+    ordered = bool(m.get("order_by"))
+    # 1. static: lint the test before anything runs
+    errors, warnings = lint(a.test, a.category, ordered)
+    for w in warnings:
+        print(f"lint warning {w}")
+    if errors:
+        die("lint failed, nothing registered:\n  " + "\n  ".join(errors))
+    # 2. smoke: the test must run on explore data and honour the output contract
+    smoke, err = try_execute(a.test, WS / "explore.csv", m["seed"])
+    if smoke is None:
+        die(f"smoke run on explore.csv failed, nothing registered:\n{err}")
+    if ordered and "scored_from" not in smoke:
+        die('smoke run: JSON lacks "scored_from"')
+    if smoke["verdict"] != "survived":
+        print(f"warning: the claim is already falsified on explore data: {json.dumps(smoke)}")
+    # 3. mutation: on data with the claimed structure destroyed, the test must say falsified
+    if not a.mutant and not a.no_mutant:
+        die("give at least one --mutant that should kill this claim, or --no-mutant \"<reason>\"")
+    with open(WS / "explore.csv", newline="") as f:
+        rows = list(csv.reader(f))
+    header, body = rows[0], rows[1:]
+    mutants = []
+    (WS / "mutants").mkdir(exist_ok=True)
+    for spec in a.mutant or []:
+        verdicts = []
+        for k in range(5):
+            mbody = mutate(spec, header, body, m.get("order_by"), random.Random(f"{m['seed']}:{spec}:{k}"))
+            path = WS / "mutants" / f"{a.id}.csv"
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(header)
+                w.writerows(mbody)
+            res, err = try_execute(a.test, path, m["seed"])
+            verdicts.append(res["verdict"] if res else "error")
+        killed = verdicts.count("falsified")
+        informative = smoke["verdict"] == "survived"
+        mutants.append({"mutant": spec, "verdicts": verdicts, "killed": killed, "informative": informative})
+        print(f"mutant {spec}: killed {killed}/5 {verdicts}"
+              + ("" if informative else " (uninformative: the claim already fails on unmutated explore data)"))
+        if informative and killed < 4:
+            die(f"the test has no teeth against {spec}: it falsified only {killed} of 5 mutants. "
+                "Tighten the test or the threshold, or pick a mutant that really destroys what the claim asserts")
+    (WS / "mutants" / f"{a.id}.csv").unlink(missing_ok=True)
     append("register", id=a.id, claim=a.claim, prediction=a.prediction, falsify_if=a.falsify_if,
-           category=a.category, insight_kind=a.kind, rests_on=parents,
+           category=a.category, insight_kind=a.kind, rests_on=parents, smoke=smoke,
+           lint_warnings=warnings, mutants=mutants, no_mutant=a.no_mutant,
            decision=a.decision, min_fresh=a.min_fresh, test=str(a.test), test_sha=sha(a.test),
            review=str(a.review) if a.review else None, review_sha=sha(a.review) if a.review else None)
     print(f"{a.id} registered; test frozen at {sha(a.test)[:12]}")
@@ -238,8 +390,12 @@ def cmd_goldfish(a):
         die(f"{a.id} has not run")
     result, out_sha = execute(a.test, WS / "holdout.csv", m["seed"])
     agrees = result["verdict"] == run[0]["result"]["verdict"]
+    reg = find("register", a.id)[0]
+    g_err, g_warn = lint(a.test, reg.get("category") or "descriptive", False)
+    for x in g_err + g_warn:
+        print(f"goldfish lint: {x}")
     append("goldfish", id=a.id, agent=a.agent, test=str(a.test), test_sha=sha(a.test),
-           result=result, agrees=agrees, stdout_sha=out_sha, narrowed=a.narrowed)
+           result=result, agrees=agrees, stdout_sha=out_sha, narrowed=a.narrowed, lint=g_err + g_warn)
     print(f"{a.id}: goldfish {a.agent} says {result['verdict']} -> {'AGREES' if agrees else 'DISAGREES'}"
           + (f" (narrowed: {a.narrowed})" if a.narrowed else ""))
 
@@ -362,6 +518,18 @@ def cmd_waive(a):
     print(f"waived {a.type}: {a.reason}")
 
 
+def cmd_lint(a):
+    ordered = bool(meta().get("order_by")) if LEDGER.exists() else False
+    errors, warnings = lint(a.test, a.category, ordered)
+    for w in warnings:
+        print(f"warning {w}")
+    for e in errors:
+        print(f"error {e}")
+    if errors:
+        sys.exit(1)
+    print("lint clean" if not warnings else "lint passed with warnings")
+
+
 def cmd_types(a):
     for cat, kinds in TYPES.items():
         print(f"{cat}" + (f"  (must rest on: {' or '.join(RESTS_ON[cat])})" if cat in RESTS_ON else ""))
@@ -466,6 +634,9 @@ def main():
     r.add_argument("--rests-on", help="comma-separated claim ids this claim depends on (required for prescriptive)")
     r.add_argument("--decision", required=True, help="the decision this claim would change if it holds")
     r.add_argument("--min-fresh", type=int, help="fresh rows needed before `retest` may judge this claim")
+    r.add_argument("--mutant", action="append", help="data mutation that should kill the claim (repeatable): "
+                   "shuffle-rows, shuffle-months, shuffle-years, permute:COL, swap:A,B")
+    r.add_argument("--no-mutant", help="why no mutation applies (recorded)")
     r.add_argument("--review", help="the critic goldfish's review of this claim, saved before registering")
     for n in ("run", "replay"):
         s.add_parser(n).add_argument("id")
@@ -476,6 +647,7 @@ def main():
     s.add_parser("retest").add_argument("id", help="a claim id, or `all`")
     w = s.add_parser("waive"); w.add_argument("type", help="category or category/kind")
     w.add_argument("--reason", required=True, help="why this data cannot support that type")
+    li = s.add_parser("lint"); li.add_argument("test"); li.add_argument("--category", required=True, choices=list(TYPES))
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
     globals()[f"cmd_{a.cmd}"](a)

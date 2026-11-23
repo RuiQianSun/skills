@@ -24,11 +24,23 @@ The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the
 4. **Explore.** Profile `explore.csv` freely. Write down candidate claims as you go, and keep a count of how many things you looked at; it is your multiple-comparisons budget.
 5. **Sharpen.** Turn each candidate into a claim a stranger could test: a category and kind, a direction, an effect size, a statistic, a kill threshold that meets the kind's evidence standard, and the decision it would change. Word a descriptive claim as what happened, never why; word a driver as "moves with", never "causes". Set thresholds you would be embarrassed to miss, corrected across everything you register. Prefer three strong claims over ten weak ones, and register at least one you expect to fail.
 6. **Critique.** Dispatch a **critic** goldfish with the critic brief below; one critic may take the whole batch of claims, since it sees no data either way. Save its reply for each claim to `analysis/reviews/<id>.md`. Tighten the claim where it lands a hit: wording broader than the test, a threshold a known fact clears for free, a decision the claim does not actually bear on.
-7. **Confirm.** For each claim: write `analysis/tests/<id>.py`, `register --review analysis/reviews/<id>.md` (for time series also `--min-fresh <rows>`, the fresh data a fair retest needs, such as 36 months for a claim about years), `run`, `replay`.
+7. **Confirm.** For each claim: write `analysis/tests/<id>.py`, then `register --review analysis/reviews/<id>.md --mutant <spec>` (for time series also `--min-fresh <rows>`, the fresh data a fair retest needs, such as 36 months for a claim about years), then `run`, `replay`. `register` refuses a test that fails three mechanical gates, so fix the test rather than argue: the **lint** (future-peeking code in a predictive or prescriptive test, files other than env `DATA`, unseeded randomness, a missing `SCORE_FROM`), the **smoke run** on `explore.csv`, and the **mutation** gate. A mutant is a copy of the explore data with the claimed structure destroyed, and the test must call at least 4 of 5 mutants falsified. Pick the mutant that destroys exactly what the claim asserts: `shuffle-months` for a seasonal or timing claim, `shuffle-years` for a trend, `swap:A,B` for a comparison or composition, `permute:COL` for a driver, `shuffle-rows` for a forecast. Use `--no-mutant "<reason>"` only for an exact count on a frozen table.
 8. **Test blind.** For each claim that ran, dispatch a **tester** goldfish with the tester brief below, all in parallel, one per claim. Where the harness lets you choose a model, run at least one tester on a different model from yours, so agreement is not one model's priors agreeing with themselves. Record each with `ledger.py goldfish <id> --test analysis/goldfish/<id>.py --agent <name>`, adding `--narrowed "<reading>"` when the tester reports one.
 9. **Reconcile.** A tester that disagrees has found something: a bug in your test, a claim worded more loosely than you tested it, or an effect that exists for only one way of measuring it. Read its script, decide which, and register a corrected claim under a new id rather than editing the old one. Disagreement stays in the ledger as `contested`.
 10. **Report.** `ledger.py verify`, then `ledger.py report`. Present `analysis/INSIGHTS.md`, which groups claims by category and ends with a coverage map: established insights first (quoting the narrowed reading where there is one), each with the decision it informs; refuted claims next (they are findings too); contested claims and hunches last, labelled as such; then the coverage gaps and what data would close them. Every number you quote in prose comes from the report.
 11. **Keep testing.** For time series, each new data release is a holdout nobody has seen. Pull it, then `ledger.py extend <new full file>` (it seals the new rows as `fresh.csv` and counts rows the source revised), `ledger.py retest all`, and `report`. A claim that **broke on fresh data** goes back to step 8. This step is what to schedule when the user wants the analysis to run on its own.
+
+## The verification layers
+
+Checks are layered from cheapest to dearest, and each catches what the one above cannot. Push every check as high as it will go: a rule enforced in code costs nothing per claim, while one enforced only by this prose costs your attention every time.
+
+1. **Structure** (the ledger's design): sealed explore/holdout split, frozen hashed tests, one look per claim, holdout budget, typed claims, prescriptive claims blocked on their support, hash-chained ledger.
+2. **Static checks** (instant, deterministic): the data audit at `init`, the lint, the output contract, type and dependency validation.
+3. **Runtime verification** (seconds, deterministic): smoke run, mutation gate, holdout run, byte-identical replay, retests on fresh data.
+4. **Agent judgment** (minutes, a model call each): the critic, the testers on more than one model, your reconciling. Mutation asks "is there a pattern at all?"; only the critic asks "is it more than the pattern everyone already knows?", and only the critic catches a horizon leak, so neither layer replaces the other.
+5. **Human review** (the user's time): which established insights matter, what goes in `KNOWN.md`, and field tests of prescriptive claims.
+
+What still rests on prose alone: reading only `explore.csv` until a claim is registered, honest thresholds, and novelty. Treat them as the weakest links.
 
 Every goldfish is a subagent started with a **fresh context window**, never a fork of this conversation: a fork inherits the memory the goldfish exists to lack. Its whole prompt is its brief, filled in; it gets no numbers, code or reasoning of yours.
 
@@ -44,13 +56,15 @@ Type: <category>/<kind>, whose evidence standard is: <standard from ledger.py ty
 It is falsified if: <falsify-if>
 Decision it should inform: <decision>
 
-Answer in five short lines:
+Answer in six short lines:
 1. TRIVIAL: does a known fact already guarantee this passes? yes/no, why.
 2. WORDING: does the claim say more than the falsify-if checks? Quote the extra words.
 3. DECISION: would the decision really change on this result? yes/no, why.
 4. TYPE: is it really this type? A "descriptive" claim that explains, or a "driver" worded as
    a cause, is mistyped. Does the falsify-if meet the type's evidence standard?
-5. STRICTER: one sharper version of the claim worth testing instead, or "none".
+5. HORIZON: for a forecast or a rule, could it use data the decision-maker would not have yet
+   when acting (next month's sales, a figure published later)? yes/no, where.
+6. STRICTER: one sharper version of the claim worth testing instead, or "none".
 ```
 
 ## The tester brief
