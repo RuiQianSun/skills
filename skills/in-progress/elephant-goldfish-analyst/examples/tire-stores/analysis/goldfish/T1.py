@@ -38,6 +38,15 @@ p0 = 2 / 12
 k = len(hits)
 p_binom = sum(comb(n, i) * p0**i * (1 - p0)**(n - i) for i in range(k, n + 1))
 
+# Sensitivity: years with 11 months present (a missing month), low taken over observed months.
+part = [int(y) for y in counts[counts == 11].index]
+part_lows = {}
+for y in part:
+    d = df[df["year"] == y]
+    part_lows[y] = int(d.loc[d["tire_store_sales_musd"].idxmin(), "m"])
+all_lows = list(lows.values()) + list(part_lows.values())
+share_incl_partial = sum(m in (1, 2) for m in all_lows) / len(all_lows)
+
 verdict = "falsified" if share < 0.80 else "survived"
 print(json.dumps({
     "verdict": verdict,
@@ -48,6 +57,8 @@ print(json.dumps({
     "n_janfeb_low": k,
     "share_janfeb_low": share,
     "threshold": 0.80,
+    "excluded_years_one_month_missing_low": part_lows,
+    "share_incl_11_month_years": share_incl_partial,
     "bootstrap_95ci_share": ci,
     "binom_p_vs_uniform_months": p_binom,
 }))
