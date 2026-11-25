@@ -585,6 +585,9 @@ def status(hid):
     reps, fish = find("replay", hid), find("goldfish", hid)
     if not reps or not all(r["identical"] for r in reps):
         return f"{base} (unreplayed)" if not reps else "not repeatable"
+    sd = find("seeds", hid)
+    if sd and not sd[-1]["stable"]:
+        return "seed-sensitive (verdict flips with the random seed)"
     if not fish:
         return f"{base} (no goldfish yet)"
     if not all(g["agrees"] for g in fish):
@@ -723,6 +726,27 @@ def cmd_respond(a):
         die(f"no referee report from {a.to!r}")
     append("response", to=a.to, file=str(a.file), file_sha=sha(a.file))
     print(f"response to {a.to} recorded")
+
+
+def cmd_seeds(a):
+    """Rerun a claim's frozen test and every replication under several seeds; a verdict that flips is not a finding."""
+    m = check_data()
+    ids = [e["id"] for e in entries() if e["kind"] == "run"] if a.id == "all" else [a.id]
+    seeds = [m["seed"] + k for k in range(a.n)] + [1]
+    for hid in ids:
+        reg = find("register", hid)[0]
+        data, env = confirm_inputs(reg, m)
+        scripts = [("elephant", reg["test"])] + [(g["agent"], g["test"]) for g in find("goldfish", hid)]
+        out = {}
+        for who, path in scripts:
+            vs = []
+            for sd in seeds:
+                res, err = try_execute(path, data, sd, env)
+                vs.append(res["verdict"] if res else "error")
+            out[who] = vs
+        stable = len({v for vs in out.values() for v in vs}) == 1
+        append("seeds", id=hid, seeds=seeds, verdicts=out, stable=stable)
+        print(f"{hid}: {'stable' if stable else 'SEED-SENSITIVE'} {json.dumps(out)}")
 
 
 def cmd_audit(a):
@@ -864,6 +888,7 @@ def cmd_report(a):
               "**refuted** = falsified and confirmed the same way. **(narrowed)** = a goldfish found the claim holds only in a "
               "narrower reading; quote the narrowed version. **held / BROKE on fresh data** = the frozen test rerun on rows "
               "published after the seal. **blocked** = a prescriptive claim whose supporting claim is not established. "
+              "**seed-sensitive** = the verdict changes with the random seed (`seeds`), so it is not a finding. "
               "Anything else is not yet an insight."]
     out = WS / "INSIGHTS.md"
     out.write_text("\n".join(lines) + "\n")
@@ -1092,6 +1117,7 @@ def main():
     rs = s.add_parser("respond"); rs.add_argument("--to", required=True, help="the referee agent name"); rs.add_argument("--file", required=True)
     pa = s.add_parser("paper"); pa.add_argument("--title"); pa.add_argument("--notes", help="path to analyst notes to cite")
     s.add_parser("audit")
+    se = s.add_parser("seeds"); se.add_argument("id", help="a claim id, or `all`"); se.add_argument("--n", type=int, default=3, help="seeds to try besides seed 1")
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
     globals()[f"cmd_{a.cmd}"](a)

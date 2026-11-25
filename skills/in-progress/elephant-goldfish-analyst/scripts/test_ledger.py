@@ -315,6 +315,25 @@ class HistoryModeTests(unittest.TestCase):
             self.assertIn("0 failure(s)", ws.ok("audit"))
 
 
+class SeedTests(unittest.TestCase):
+    def test_a_verdict_that_flips_with_the_seed_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Workspace(tmp)
+            ws.init()
+            coin = SEASONAL.replace('print(json.dumps({"verdict": "survived" if share >= 0.8 else "falsified",',
+                                    'import random\nrandom.seed(int(os.environ["SEED"]))\nok = share >= 0.8 and random.random() < 0.5\nprint(json.dumps({"verdict": "survived" if ok else "falsified",')
+            t = ws.script("C.py", coin)
+            code, out = ws.register("C1", t, "--no-mutant", "seed test")
+            self.assertEqual(code, 0, out)
+            ws.ok("run", "C1")
+            ws.ok("replay", "C1")
+            out = ws.ok("seeds", "C1", "--n", "6")
+            self.assertIn("SEED-SENSITIVE", out)
+            fish = ws.script("fish.py", SEASONAL)
+            ws.ok("goldfish", "C1", "--test", fish)
+            self.assertIn("seed-sensitive", ws.ok("report"))
+
+
 class PanelTests(unittest.TestCase):
     def test_panel_allows_repeated_periods_and_splits_on_a_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
