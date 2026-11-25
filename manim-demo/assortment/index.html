@@ -1,0 +1,863 @@
+<meta name="dash-one-writer">
+<meta name="dash-form" content="dashboard">
+<style>
+  .as { display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+  .as-head { display: grid; gap: var(--cds-gap-sm); }
+  .as-eyebrow { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); letter-spacing: .06em; text-transform: uppercase; }
+  .as-title { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); text-wrap: balance; }
+  .as-lede { margin: 0; max-width: 70ch; font-size: var(--cds-font-size-body); line-height: 1.55; }
+  .as-lede b { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .as-muted { color: var(--color-fg-muted); }
+  .as-good { color: var(--color-ok); }
+  .as-bad { color: var(--color-bad); }
+
+  .as-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--cds-gap-md); }
+  .as-field { display: grid; gap: var(--cds-gap-xs); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); min-width: 0; }
+  .as-field select { max-width: 15em; }
+  .as-btn { font: inherit; font-size: var(--cds-font-size-caption); color: var(--color-fg); background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: 6px 12px; cursor: pointer; }
+  .as-btn[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); }
+  .as button:focus-visible, .as tr:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+  .as-seg { display: inline-flex; }
+  .as-seg .as-btn { border-radius: 0; }
+  .as-seg .as-btn:first-child { border-radius: var(--cds-radius) 0 0 var(--cds-radius); }
+  .as-seg .as-btn:last-child { border-radius: 0 var(--cds-radius) var(--cds-radius) 0; border-left: 0; }
+
+  .as-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--cds-gap-md); }
+  .as-kpi, .as-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .as-kpi { display: grid; gap: var(--cds-gap-xs); align-content: start; }
+  .as-kpi h3 { margin: 0; font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); }
+  .as-kpi-value { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .as-kpi-value small { font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .as-kpi-note { margin: 0; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; color: var(--color-fg-muted); }
+
+  .as-card { display: grid; gap: var(--cds-gap-md); align-content: start; }
+  .as-card h2 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); text-wrap: balance; }
+  .as-sub { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); max-width: 75ch; }
+  .as-row { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; justify-content: space-between; }
+  .as-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--cds-gap-lg); }
+
+  .as-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .as-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .as-sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .as-sw-line { width: 16px; height: 0; border-top: 2px dashed var(--cds-chart-reference); display: inline-block; }
+
+  .as-matrix { position: relative; min-height: 380px; }
+  .as-curve, .as-scatter { position: relative; min-height: 280px; }
+  .as-matrix > canvas { display: block; width: 100%; cursor: crosshair; }
+  .as-scale { display: flex; align-items: center; gap: 8px; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); flex-wrap: wrap; }
+  .as-scale canvas { width: 160px; height: 10px; border-radius: 2px; }
+  .as-curve svg, .as-scatter svg { display: block; overflow: visible; }
+  .as-axis text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .as-axis path, .as-axis line { stroke: var(--cds-chart-axis); }
+  .as-gridline { stroke: var(--cds-chart-grid); }
+  .as-label { fill: var(--cds-text-secondary); font-size: 11px; font-family: var(--font-anthropic-sans); }
+  .as-endlabel { font-size: 12px; font-family: var(--font-anthropic-sans); font-variant-numeric: tabular-nums; }
+
+  .as-tip { position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: 8px 10px; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; min-width: 180px; max-width: 260px; }
+  .as-tip-h { font-weight: var(--cds-font-weight-medium); margin-bottom: 2px; }
+  .as-tip-s { color: var(--cds-text-secondary); margin-bottom: 6px; }
+  .as-tip dl { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; }
+  .as-tip dd { margin: 0; text-align: right; }
+
+  .as-tablewrap { overflow-x: auto; }
+  .as-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; min-width: 420px; }
+  .as-table th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: 6px 8px; border-bottom: 1px solid var(--color-border-line); }
+  .as-table td { padding: 7px 8px; border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .as-table .num { text-align: right; }
+  .as-table tbody tr { cursor: pointer; }
+  .as-table tbody tr:hover { background: var(--color-bg); }
+  .as-table td small { display: block; color: var(--color-fg-muted); }
+  .as-fail { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+
+  .as-notes { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .as-notes summary { cursor: pointer; color: var(--color-fg); }
+  .as-notes dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; max-width: 76ch; }
+  .as-notes dt { color: var(--color-fg); }
+  .as-notes dd { margin: 0; }
+  @media (max-width: 520px) { .as-notes dl { grid-template-columns: 1fr; } .as-notes dd { margin-bottom: 6px; } }
+</style>
+
+<div class="as">
+  <header class="as-head" id="overview">
+    <p class="as-eyebrow">Sample data · Fall 2026 season, weeks 1 to 12</p>
+    <h1 class="as-title">Fall Assortment Sell-Through</h1>
+    <p class="as-lede">For <span data-draw="t-scope">—</span>, recommended SKUs sold <b data-draw="k-rec" data-source="kpis" data-field="recommended_st_pct" data-row="0">—</b> of the units stores received, against <b data-draw="k-planner" data-source="kpis" data-field="planner_st_pct" data-row="0">—</b> for SKUs planners added. Overall sell-through is <b data-draw="k-st" data-source="kpis" data-field="sell_through_pct" data-row="0">—</b>, <b data-draw="k-st-gap" data-source="kpis" data-field="vs_target_pts" data-row="0">—</b> points against the <span data-draw="target">—</span> target.</p>
+  </header>
+
+  <div class="as-controls" id="filters">
+    <label class="as-field">Store cluster
+      <select class="dash-select" id="f-cluster" data-param="cluster">
+        <option value="">All clusters</option>
+        <option value="Urban flagship">Urban flagship</option>
+        <option value="Suburban">Suburban</option>
+        <option value="Value outlet">Value outlet</option>
+        <option value="Warm climate">Warm climate</option>
+      </select>
+    </label>
+    <label class="as-field">Store
+      <select class="dash-select" id="f-store" data-draw="store-select" data-source="assortment"></select>
+    </label>
+    <label class="as-field">Category
+      <select class="dash-select" id="f-category" data-param="category">
+        <option value="">All categories</option>
+        <option value="Tops">Tops</option>
+        <option value="Bottoms">Bottoms</option>
+        <option value="Outerwear">Outerwear</option>
+        <option value="Footwear">Footwear</option>
+        <option value="Accessories">Accessories</option>
+      </select>
+    </label>
+    <label class="as-field">SKU
+      <select class="dash-select" id="f-sku" data-draw="sku-select" data-source="assortment"></select>
+    </label>
+    <label class="as-field">Source of the pick
+      <select class="dash-select" id="f-decision" data-param="decision">
+        <option value="">All carried SKUs</option>
+        <option value="Recommended, kept">Recommended, kept</option>
+        <option value="Added by planner">Added by planner</option>
+      </select>
+    </label>
+    <button type="button" class="as-btn" id="f-clear" hidden>Clear filters</button>
+  </div>
+
+  <section class="as-kpis" id="kpis" aria-label="Season to date">
+    <article class="as-kpi" id="kpi-st">
+      <h3>Sell-through</h3>
+      <p class="as-kpi-value" data-draw="k-st" data-source="kpis" data-field="sell_through_pct" data-row="0">—</p>
+      <p class="as-kpi-note"><span data-draw="k-st-gap" data-source="kpis" data-field="vs_target_pts" data-row="0">—</span> pts vs <span data-draw="target">—</span> target</p>
+    </article>
+    <article class="as-kpi" id="kpi-source">
+      <h3>Recommended vs planner-added</h3>
+      <p class="as-kpi-value"><span data-draw="k-rec" data-source="kpis" data-field="recommended_st_pct" data-row="0">—</span> <small>vs</small> <span data-draw="k-planner" data-source="kpis" data-field="planner_st_pct" data-row="0">—</span></p>
+      <p class="as-kpi-note">Units sold over units received, by who picked the SKU</p>
+    </article>
+    <article class="as-kpi" id="kpi-units">
+      <h3>Units sold</h3>
+      <p class="as-kpi-value" data-draw="k-sold" data-source="kpis" data-field="sold_units" data-row="0">—</p>
+      <p class="as-kpi-note"><span data-draw="k-revenue" data-source="kpis" data-field="revenue" data-row="0">—</span> revenue from <span data-draw="k-received" data-source="kpis" data-field="received_units" data-row="0">—</span> units received</p>
+    </article>
+    <article class="as-kpi" id="kpi-stockouts">
+      <h3>Ran out of stock</h3>
+      <p class="as-kpi-value" data-draw="k-stockout" data-source="kpis" data-field="stockout_share_pct" data-row="0">—</p>
+      <p class="as-kpi-note">of store-SKUs, about <span data-draw="k-lost" data-source="kpis" data-field="est_lost_units" data-row="0">—</span> units of demand missed</p>
+    </article>
+    <article class="as-kpi" id="kpi-dropped">
+      <h3>Recommendations dropped</h3>
+      <p class="as-kpi-value" data-draw="k-dropped" data-source="kpis" data-field="dropped_count" data-row="0">—</p>
+      <p class="as-kpi-note">store-SKUs, with <span data-draw="k-dropped-units" data-source="kpis" data-field="dropped_forecast_units" data-row="0">—</span> units of forecast demand</p>
+    </article>
+  </section>
+
+  <section class="as-card" id="grid">
+    <div class="as-row">
+      <h2>Every store and SKU in the season</h2>
+      <div class="as-seg" role="group" aria-label="Color cells by">
+        <button type="button" class="as-btn" data-colorby="st" aria-pressed="true">Sell-through</button>
+        <button type="button" class="as-btn" data-colorby="decision" aria-pressed="false">Who picked it</button>
+      </div>
+    </div>
+    <p class="as-sub">One row per store, grouped by cluster, and one column per SKU, grouped by category and sorted by sell-through. Blank cells were never in that store's assortment. Point at a cell to read it; pick one to filter the page to that store and SKU.</p>
+    <div class="as-matrix dash-skeleton" data-draw="matrix" data-source="assortment"></div>
+  </section>
+
+  <div class="as-grid2">
+    <section class="as-card" id="curve">
+      <h2>Sell-through week by week</h2>
+      <p class="as-sub">Cumulative units sold over units received, against the season's target path.</p>
+      <div class="as-legend">
+        <span><i class="as-sw" data-ci="0"></i>Recommended, kept</span>
+        <span><i class="as-sw" data-ci="1"></i>Added by planner</span>
+        <span><i class="as-sw-line"></i>Target</span>
+      </div>
+      <div class="as-curve dash-skeleton" data-draw="curve" data-source="curve"></div>
+    </section>
+    <section class="as-card" id="skus">
+      <h2>SKUs the engine backed sell better</h2>
+      <p class="as-sub">Each dot is a SKU. Across right: the share of the stores carrying it where the engine recommended it. Up: its sell-through. Size: units sold. Pick a dot to filter the page.</p>
+      <div class="as-legend">
+        <span><i class="as-sw" data-ci="0"></i>Tops</span>
+        <span><i class="as-sw" data-ci="1"></i>Bottoms</span>
+        <span><i class="as-sw" data-ci="2"></i>Outerwear</span>
+        <span><i class="as-sw" data-ci="3"></i>Footwear</span>
+        <span><i class="as-sw" data-ci="4"></i>Accessories</span>
+      </div>
+      <div class="as-scatter dash-skeleton" data-draw="scatter" data-source="sku_summary"></div>
+    </section>
+  </div>
+
+  <div class="as-grid2">
+    <section class="as-card" id="slow">
+      <h2>Move or mark down</h2>
+      <p class="as-sub">Store-SKUs under 40% sell-through with 8 or more units still on hand, most stock first.</p>
+      <div class="as-tablewrap">
+        <table class="as-table" data-source="actions_slow" data-row-key="store_id,sku">
+          <thead><tr><th data-field="store">Store</th><th data-field="sku_name">SKU</th><th data-field="sell_through_pct" class="num">Sell-through</th><th data-field="on_hand" class="num">On hand</th></tr></thead>
+          <tbody data-draw="slow-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="as-card" id="chase">
+      <h2>Chase: sold out early</h2>
+      <p class="as-sub">Store-SKUs at 95% or more sell-through that were out of stock for 2 weeks or more, most demand missed first.</p>
+      <div class="as-tablewrap">
+        <table class="as-table" data-source="actions_chase" data-row-key="store_id,sku">
+          <thead><tr><th data-field="store">Store</th><th data-field="sku_name">SKU</th><th data-field="stockout_weeks" class="num">Weeks out</th><th data-field="est_lost_units" class="num">Units missed</th></tr></thead>
+          <tbody data-draw="chase-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <details class="as-notes" id="notes">
+    <summary>Definitions and how the sample data was made</summary>
+    <dl>
+      <dt>Sell-through</dt><dd>Units sold divided by units received, over the 12 weeks so far.</dd>
+      <dt>Recommended, kept</dt><dd>The assortment engine picked the SKU for that store and the planner kept it.</dd>
+      <dt>Added by planner</dt><dd>The engine did not pick the SKU for that store; a planner added it.</dd>
+      <dt>Dropped by planner</dt><dd>The engine picked it and a planner removed it, so the store never received it.</dd>
+      <dt>Ran out of stock</dt><dd>A store-SKU had a week where demand was higher than what was left on the shelf.</dd>
+      <dt>Units of demand missed</dt><dd>An estimate of what would have sold in those weeks with stock on hand.</dd>
+      <dt>Sample data</dt><dd>Every number is synthetic, from a script you can read in Sources: 40 stores in 4 clusters, 150 SKUs in 5 categories, one buy per store-SKU at the start of the season and no replenishment.</dd>
+    </dl>
+  </details>
+</div>
+
+<script>
+  window.AS = (() => {
+    const TARGET_PCT = 70;
+    const CATEGORIES = ['Tops', 'Bottoms', 'Outerwear', 'Footwear', 'Accessories'];
+    const CLUSTERS = ['Urban flagship', 'Suburban', 'Value outlet', 'Warm climate'];
+    const short = (v) => d3.format('.3~s')(v).replace('G', 'B');
+    const pct = (v) => v.toFixed(1) + '%';
+    const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1);
+    const color = (i) => dash.colors[i % dash.colors.length];
+    const resolve = (el, c) => {
+      const m = /^var\((--[^,)]+)/.exec(c || '');
+      return m ? (getComputedStyle(el).getPropertyValue(m[1]).trim() || '#888') : c;
+    };
+    const targetAt = (week) => TARGET_PCT * Math.pow(week / 12, 0.8);
+    const stScale = d3.scaleDiverging([15, TARGET_PCT, 95], (t) => d3.interpolateRdBu(0.06 + t * 0.88)).clamp(true);
+    function gate(el, id, inline) {
+      const d = dash.data(id);
+      if (d.status === 'ok') { el.classList.remove('dash-skeleton'); return d; }
+      if (d.status === 'loading') {
+        el.classList.add('dash-skeleton');
+        if (inline) el.textContent = '—'; else el.replaceChildren();
+        return null;
+      }
+      el.classList.remove('dash-skeleton');
+      if (inline) { el.textContent = '—'; return null; }
+      const p = document.createElement('p');
+      p.className = 'as-fail';
+      p.textContent = d.status === 'error' || d.status === 'missing' ? 'This part didn’t load. Sources says why.' : '—';
+      el.replaceChildren(p);
+      return null;
+    }
+    return { TARGET_PCT, CATEGORIES, CLUSTERS, short, pct, signed, color, resolve, targetAt, stScale, gate, colorBy: 'st' };
+  })();
+</script>
+
+<script>
+  dash.calc('kpis', {
+    title: 'Season totals',
+    description: 'Sell-through, units, revenue, stockouts and dropped recommendations for the store-SKUs the filters pick. The recommended and planner-added figures ignore the Source filter.',
+    inputs: ['assortment'],
+    fn: (rows) => {
+      const { cluster, store, category, sku, decision } = dash.params();
+      const TARGET_PCT = 70;
+      const inScope = (r) => (!cluster || r.cluster === cluster) && (!store || r.store_id === store)
+        && (!category || r.category === category) && (!sku || r.sku === sku);
+      let rec = 0, sold = 0, revenue = 0, n = 0, out = 0, lost = 0, dropped = 0, droppedUnits = 0;
+      const src = { 'Recommended, kept': [0, 0], 'Added by planner': [0, 0] };
+      for (const r of rows) {
+        if (!inScope(r)) continue;
+        if (r.decision === 'Dropped by planner') { dropped += 1; droppedUnits += Number(r.forecast_units); continue; }
+        src[r.decision][0] += Number(r.received_units);
+        src[r.decision][1] += Number(r.sold_units);
+        if (decision && r.decision !== decision) continue;
+        rec += Number(r.received_units);
+        sold += Number(r.sold_units);
+        revenue += Number(r.revenue);
+        n += 1;
+        if (Number(r.stockout_weeks) > 0) out += 1;
+        lost += Number(r.est_lost_units);
+      }
+      const st = (s, rcv) => (rcv ? Math.round((s / rcv) * 1000) / 10 : null);
+      const overall = st(sold, rec);
+      return [{
+        received_units: rec, sold_units: sold, revenue: Math.round(revenue),
+        sell_through_pct: overall,
+        vs_target_pts: overall == null ? null : Math.round((overall - TARGET_PCT) * 10) / 10,
+        recommended_st_pct: st(src['Recommended, kept'][1], src['Recommended, kept'][0]),
+        planner_st_pct: st(src['Added by planner'][1], src['Added by planner'][0]),
+        store_skus: n,
+        stockout_share_pct: n ? Math.round((out / n) * 1000) / 10 : null,
+        est_lost_units: Math.round(lost),
+        dropped_count: dropped,
+        dropped_forecast_units: Math.round(droppedUnits),
+      }];
+    },
+  });
+
+  dash.calc('curve', {
+    title: 'Sell-through by week',
+    description: 'Cumulative units sold over units received at the end of each week, for recommended-and-kept and planner-added store-SKUs in the filters’ scope.',
+    inputs: ['assortment'],
+    fn: (rows) => {
+      const { cluster, store, category, sku } = dash.params();
+      const inScope = (r) => (!cluster || r.cluster === cluster) && (!store || r.store_id === store)
+        && (!category || r.category === category) && (!sku || r.sku === sku);
+      const recv = { rec: 0, add: 0 };
+      const sold = { rec: new Array(12).fill(0), add: new Array(12).fill(0) };
+      for (const r of rows) {
+        if (!inScope(r) || r.decision === 'Dropped by planner') continue;
+        const k = r.decision === 'Added by planner' ? 'add' : 'rec';
+        recv[k] += Number(r.received_units);
+        for (let w = 1; w <= 12; w++) sold[k][w - 1] += Number(r['sold_w' + String(w).padStart(2, '0')]);
+      }
+      return sold.rec.map((_, i) => ({
+        week: i + 1,
+        recommended_pct: recv.rec ? Math.round((sold.rec[i] / recv.rec) * 1000) / 10 : null,
+        planner_pct: recv.add ? Math.round((sold.add[i] / recv.add) * 1000) / 10 : null,
+      }));
+    },
+  });
+
+  dash.calc('sku_summary', {
+    title: 'Sell-through by SKU',
+    description: 'For each SKU in scope: stores carrying it, the share of those where the engine recommended it, units and sell-through. Follows the cluster, store and category filters.',
+    inputs: ['assortment'],
+    fn: (rows) => {
+      const { cluster, store, category } = dash.params();
+      const by = new Map();
+      for (const r of rows) {
+        if (r.decision === 'Dropped by planner') continue;
+        if ((cluster && r.cluster !== cluster) || (store && r.store_id !== store) || (category && r.category !== category)) continue;
+        const s = by.get(r.sku) || { sku: r.sku, sku_name: r.sku_name, category: r.category, stores: 0, recommended: 0, received_units: 0, sold_units: 0 };
+        s.stores += 1;
+        if (r.decision === 'Recommended, kept') s.recommended += 1;
+        s.received_units += Number(r.received_units);
+        s.sold_units += Number(r.sold_units);
+        by.set(r.sku, s);
+      }
+      return [...by.values()].map((s) => ({
+        sku: s.sku, sku_name: s.sku_name, category: s.category, stores_carrying: s.stores,
+        recommended_share_pct: Math.round((s.recommended / s.stores) * 1000) / 10,
+        received_units: s.received_units, sold_units: s.sold_units,
+        sell_through_pct: s.received_units ? Math.round((s.sold_units / s.received_units) * 1000) / 10 : null,
+      }));
+    },
+  });
+
+  dash.calc('actions_slow', {
+    title: 'Slow sellers to move or mark down',
+    description: 'Carried store-SKUs in scope under 40% sell-through with 8 or more units on hand, the 12 with the most stock.',
+    inputs: ['assortment'],
+    fn: (rows) => {
+      const { cluster, store, category, sku, decision } = dash.params();
+      return rows.filter((r) => r.received_units > 0
+          && (!cluster || r.cluster === cluster) && (!store || r.store_id === store)
+          && (!category || r.category === category) && (!sku || r.sku === sku) && (!decision || r.decision === decision))
+        .map((r) => ({ store_id: r.store_id, store: r.store, cluster: r.cluster, sku: r.sku, sku_name: r.sku_name, decision: r.decision,
+          on_hand: Number(r.on_hand), sell_through_pct: Math.round((r.sold_units / r.received_units) * 1000) / 10 }))
+        .filter((r) => r.sell_through_pct < 40 && r.on_hand >= 8)
+        .sort((a, b) => b.on_hand - a.on_hand || a.sell_through_pct - b.sell_through_pct)
+        .slice(0, 12);
+    },
+  });
+
+  dash.calc('actions_chase', {
+    title: 'Early sell-outs to reorder',
+    description: 'Carried store-SKUs in scope at 95% or more sell-through and out of stock 2 or more weeks, the 12 with the most demand missed.',
+    inputs: ['assortment'],
+    fn: (rows) => {
+      const { cluster, store, category, sku, decision } = dash.params();
+      return rows.filter((r) => r.received_units > 0
+          && (!cluster || r.cluster === cluster) && (!store || r.store_id === store)
+          && (!category || r.category === category) && (!sku || r.sku === sku) && (!decision || r.decision === decision))
+        .map((r) => ({ store_id: r.store_id, store: r.store, cluster: r.cluster, sku: r.sku, sku_name: r.sku_name, decision: r.decision,
+          stockout_weeks: Number(r.stockout_weeks), est_lost_units: Math.round(Number(r.est_lost_units)),
+          sell_through_pct: Math.round((r.sold_units / r.received_units) * 1000) / 10 }))
+        .filter((r) => r.sell_through_pct >= 95 && r.stockout_weeks >= 2)
+        .sort((a, b) => b.est_lost_units - a.est_lost_units)
+        .slice(0, 12);
+    },
+  });
+</script>
+
+<script>
+  // Controls.
+  (() => {
+    document.querySelectorAll('[data-param]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const patch = { [sel.dataset.param]: sel.value };
+        if (sel.dataset.param === 'cluster') patch.store = '';
+        if (sel.dataset.param === 'category') patch.sku = '';
+        dash.setParams(patch);
+      });
+    });
+    document.querySelectorAll('#f-clear').forEach((b) => b.addEventListener('click', () => dash.resetParams()));
+    document.querySelectorAll('[data-ci]').forEach((s) => { s.style.background = AS.color(Number(s.dataset.ci)); });
+    document.querySelectorAll('[data-colorby]').forEach((b) => b.addEventListener('click', () => {
+      AS.colorBy = b.dataset.colorby;
+      document.querySelectorAll('[data-colorby]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+      dash.draw('matrix');
+    }));
+    dash.onData(() => {
+      const p = dash.params();
+      document.querySelectorAll('[data-param]').forEach((sel) => {
+        if (document.activeElement !== sel) sel.value = p[sel.dataset.param] || '';
+      });
+      document.querySelectorAll('#f-clear').forEach((b) => {
+        b.hidden = !(p.cluster || p.store || p.category || p.sku || p.decision);
+      });
+    });
+  })();
+
+  dash.draw('store-select', (sel) => {
+    const d = dash.data('assortment');
+    const { cluster, store } = dash.params();
+    const seen = new Map();
+    if (d.status === 'ok') for (const r of d.data) if (!seen.has(r.store_id) && (!cluster || r.cluster === cluster)) seen.set(r.store_id, r);
+    const stores = [...seen.values()].sort((a, b) => a.store.localeCompare(b.store));
+    sel.replaceChildren(new Option('All stores', ''), ...stores.map((r) => new Option(r.store + ' · ' + r.cluster, r.store_id)));
+    if (document.activeElement !== sel) sel.value = store || '';
+    sel.onchange = () => dash.setParams({ store: sel.value });
+  });
+
+  dash.draw('sku-select', (sel) => {
+    const d = dash.data('assortment');
+    const { category, sku } = dash.params();
+    const seen = new Map();
+    if (d.status === 'ok') for (const r of d.data) if (!seen.has(r.sku) && (!category || r.category === category)) seen.set(r.sku, r);
+    const skus = [...seen.values()].sort((a, b) => a.sku_name.localeCompare(b.sku_name));
+    sel.replaceChildren(new Option('All SKUs', ''), ...skus.map((r) => new Option(r.sku_name + ' · ' + r.sku, r.sku)));
+    if (document.activeElement !== sel) sel.value = sku || '';
+    sel.onchange = () => dash.setParams({ sku: sel.value });
+  });
+</script>
+
+<script>
+  // Words and numbers.
+  dash.draw('target', (el) => { el.textContent = AS.TARGET_PCT + '%'; });
+  dash.draw('t-scope', (el) => {
+    const { cluster, store, category, sku } = dash.params();
+    const d = dash.data('assortment');
+    const find = (k, v) => (d.status === 'ok' ? d.data.find((r) => r[k] === v) : null);
+    const parts = [];
+    if (store) { const r = find('store_id', store); parts.push(r ? r.store : store); } else if (cluster) parts.push(cluster.toLowerCase() + ' stores');
+    if (sku) { const r = find('sku', sku); parts.push(r ? r.sku_name : sku); } else if (category) parts.push(category.toLowerCase());
+    el.textContent = parts.length ? parts.join(', ') : 'all 40 stores and 150 SKUs';
+  });
+  const value = (name, field, fmt) => dash.draw(name, (el) => {
+    const d = AS.gate(el, 'kpis', true);
+    if (!d) return;
+    const v = d.data[0] && d.data[0][field];
+    el.textContent = v == null ? '—' : fmt(v);
+  });
+  value('k-st', 'sell_through_pct', AS.pct);
+  value('k-rec', 'recommended_st_pct', AS.pct);
+  value('k-planner', 'planner_st_pct', AS.pct);
+  value('k-sold', 'sold_units', AS.short);
+  value('k-received', 'received_units', AS.short);
+  value('k-revenue', 'revenue', (v) => '$' + AS.short(v));
+  value('k-stockout', 'stockout_share_pct', AS.pct);
+  value('k-lost', 'est_lost_units', AS.short);
+  value('k-dropped', 'dropped_count', (v) => d3.format(',')(v));
+  value('k-dropped-units', 'dropped_forecast_units', AS.short);
+  dash.draw('k-st-gap', (el) => {
+    const d = AS.gate(el, 'kpis', true);
+    el.classList.remove('as-good', 'as-bad');
+    if (!d) return;
+    const v = d.data[0] && d.data[0].vs_target_pts;
+    el.textContent = v == null ? '—' : AS.signed(v);
+    if (v != null) el.classList.add(v >= 0 ? 'as-good' : 'as-bad');
+  });
+</script>
+
+<script>
+  // Store x SKU matrix on a canvas.
+  dash.draw('matrix', {
+    mount(el) {
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('role', 'img');
+      const tip = document.createElement('div');
+      tip.className = 'as-tip';
+      tip.hidden = true;
+      const scale = document.createElement('div');
+      scale.className = 'as-scale';
+      el.replaceChildren(canvas, tip, scale);
+      const S = { el, canvas, tip, scale, layout: null, hover: null };
+      const hit = (e) => {
+        const L = S.layout;
+        if (!L) return null;
+        const r = canvas.getBoundingClientRect();
+        const px = e.clientX - r.left, py = e.clientY - r.top;
+        const ci = L.colAt(px), ri = L.rowAt(py);
+        if (ci < 0 || ri < 0) return null;
+        return { ci, ri, px, py, cell: L.cells.get(L.stores[ri].id + '|' + L.skus[ci].sku) || null };
+      };
+      canvas.addEventListener('pointermove', (e) => {
+        const h = hit(e);
+        S.hover = h;
+        S.paint();
+        if (!h) { tip.hidden = true; return; }
+        const st = S.layout.stores[h.ri], sk = S.layout.skus[h.ci], c = h.cell;
+        const head = document.createElement('div');
+        head.className = 'as-tip-h';
+        head.textContent = sk.sku_name + ' · ' + sk.sku;
+        const sub = document.createElement('div');
+        sub.className = 'as-tip-s';
+        sub.textContent = st.store + ' · ' + st.cluster;
+        const dl = document.createElement('dl');
+        const add = (k, v) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; dl.append(dt, dd); };
+        if (!c) add('Not in this store’s assortment', '');
+        else {
+          add('Pick', c.decision);
+          if (c.received_units > 0) {
+            add('Received', d3.format(',')(c.received_units));
+            add('Sold', d3.format(',')(c.sold_units));
+            add('Sell-through', AS.pct((c.sold_units / c.received_units) * 100));
+            add('Weeks out of stock', String(c.stockout_weeks));
+          } else add('Forecast units', d3.format(',.0f')(c.forecast_units));
+        }
+        tip.replaceChildren(head, sub, dl);
+        tip.hidden = false;
+        const w = el.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
+        tip.style.left = (h.px + 16 + tw > w ? Math.max(0, h.px - 16 - tw) : h.px + 16) + 'px';
+        tip.style.top = Math.max(0, h.py - th / 2) + 'px';
+      });
+      canvas.addEventListener('pointerleave', () => { S.hover = null; tip.hidden = true; S.paint(); });
+      canvas.addEventListener('click', (e) => {
+        const h = hit(e);
+        if (!h || !h.cell) return;
+        const p = dash.params();
+        const st = S.layout.stores[h.ri].id, sk = S.layout.skus[h.ci].sku;
+        dash.setParams(p.store === st && p.sku === sk ? { store: '', sku: '' } : { store: st, sku: sk });
+      });
+      S.paint = () => {
+        const L = S.layout;
+        if (!L) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, L.W, L.H);
+        const muted = AS.resolve(el, 'var(--color-fg-muted)');
+        const fg = AS.resolve(el, 'var(--color-fg)');
+        const faint = AS.resolve(el, 'var(--cds-chart-grid)');
+        const decCol = { 'Recommended, kept': AS.resolve(el, AS.color(0)), 'Added by planner': AS.resolve(el, AS.color(1)) };
+        const p = dash.params();
+        const font = getComputedStyle(el).getPropertyValue('--font-anthropic-sans').trim() || 'system-ui, sans-serif';
+        // Category headers.
+        ctx.font = '11px ' + font;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = muted;
+        L.catSpans.forEach((c) => {
+          ctx.textAlign = 'left';
+          const label = L.W < 560 ? c.name.slice(0, 3) : c.name;
+          ctx.fillText(label, c.x0, 9, Math.max(10, c.x1 - c.x0 - 2));
+          ctx.fillStyle = faint;
+          ctx.fillRect(c.x0, 17, c.x1 - c.x0 - 2, 1);
+          ctx.fillStyle = muted;
+        });
+        // Cluster labels.
+        L.clusterSpans.forEach((c) => {
+          ctx.textAlign = 'right';
+          ctx.fillStyle = muted;
+          const words = L.labelW < 100 ? [c.name.split(' ')[0]] : [c.name];
+          ctx.fillText(words[0], L.labelW - 8, (c.y0 + c.y1) / 2);
+          ctx.fillStyle = faint;
+          ctx.fillRect(L.labelW - 4, c.y0, 1, c.y1 - c.y0);
+        });
+        // Cells.
+        for (let ri = 0; ri < L.stores.length; ri++) {
+          const st = L.stores[ri];
+          const rowOn = (!p.cluster || st.cluster === p.cluster) && (!p.store || st.id === p.store);
+          for (let ci = 0; ci < L.skus.length; ci++) {
+            const sk = L.skus[ci];
+            const c = L.cells.get(st.id + '|' + sk.sku);
+            if (!c) continue;
+            const on = rowOn && (!p.category || sk.category === p.category) && (!p.sku || sk.sku === p.sku)
+              && (!p.decision || c.decision === p.decision);
+            ctx.globalAlpha = on ? 1 : 0.14;
+            const x = L.colX(ci), y = L.rowY(ri);
+            if (c.decision === 'Dropped by planner') {
+              ctx.strokeStyle = muted;
+              ctx.lineWidth = 1;
+              ctx.strokeRect(x + 0.5, y + 0.5, Math.max(1, L.cw - 2), Math.max(1, L.rh - 2));
+              continue;
+            }
+            ctx.fillStyle = AS.colorBy === 'decision' ? decCol[c.decision] : AS.stScale((c.sold_units / c.received_units) * 100);
+            ctx.fillRect(x, y, Math.max(1, L.cw - (L.cw > 3 ? 1 : 0)), L.rh - 1);
+          }
+        }
+        ctx.globalAlpha = 1;
+        // Selection and hover outlines.
+        const ring = (ri, ci, color) => {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          if (ri != null && ci != null) ctx.strokeRect(L.colX(ci) - 1.5, L.rowY(ri) - 1.5, L.cw + 2, L.rh + 2);
+        };
+        if (p.store && p.sku) ring(L.stores.findIndex((s) => s.id === p.store), L.skus.findIndex((s) => s.sku === p.sku), fg);
+        if (S.hover) {
+          ctx.fillStyle = fg;
+          ctx.globalAlpha = 0.08;
+          ctx.fillRect(L.labelW, L.rowY(S.hover.ri), L.W - L.labelW, L.rh - 1);
+          ctx.fillRect(L.colX(S.hover.ci), L.top, L.cw, L.H - L.top);
+          ctx.globalAlpha = 1;
+          ring(S.hover.ri, S.hover.ci, fg);
+        }
+      };
+      return S;
+    },
+    update(el, S) {
+      const d = dash.data('assortment');
+      if (d.status === 'loading') { el.classList.add('dash-skeleton'); return; }
+      el.classList.remove('dash-skeleton');
+      if (d.status !== 'ok') {
+        S.layout = null;
+        S.canvas.getContext('2d').clearRect(0, 0, S.canvas.width, S.canvas.height);
+        S.scale.textContent = d.status === 'error' || d.status === 'missing' ? 'This part didn’t load. Sources says why.' : '—';
+        return;
+      }
+      if (S.rowsRef !== d.data) {
+        S.rowsRef = d.data;
+        const cells = new Map(), storeMap = new Map(), skuMap = new Map();
+        for (const r of d.data) {
+          cells.set(r.store_id + '|' + r.sku, r);
+          if (!storeMap.has(r.store_id)) storeMap.set(r.store_id, { id: r.store_id, store: r.store, cluster: r.cluster });
+          const s = skuMap.get(r.sku) || { sku: r.sku, sku_name: r.sku_name, category: r.category, rec: 0, sold: 0 };
+          s.rec += Number(r.received_units);
+          s.sold += Number(r.sold_units);
+          skuMap.set(r.sku, s);
+        }
+        S.cells = cells;
+        S.stores = [...storeMap.values()].sort((a, b) => AS.CLUSTERS.indexOf(a.cluster) - AS.CLUSTERS.indexOf(b.cluster) || a.id.localeCompare(b.id));
+        S.skus = [...skuMap.values()].sort((a, b) => AS.CATEGORIES.indexOf(a.category) - AS.CATEGORIES.indexOf(b.category)
+          || (b.rec ? b.sold / b.rec : 0) - (a.rec ? a.sold / a.rec : 0));
+      }
+      const W = Math.max(280, el.clientWidth || 700);
+      const labelW = W < 560 ? 64 : 118;
+      const catGap = 4, clusterGap = 6, top = 22;
+      const nCat = AS.CATEGORIES.length;
+      const cw = (W - labelW - catGap * (nCat - 1)) / S.skus.length;
+      const rh = W < 560 ? 7 : 9;
+      const colX0 = [], rowY0 = [];
+      let x = labelW, prevCat = null;
+      S.skus.forEach((s) => { if (prevCat && s.category !== prevCat) x += catGap; colX0.push(x); x += cw; prevCat = s.category; });
+      let y = top, prevCl = null;
+      S.stores.forEach((s) => { if (prevCl && s.cluster !== prevCl) y += clusterGap; rowY0.push(y); y += rh; prevCl = s.cluster; });
+      const H = Math.ceil(y + 2);
+      const catSpans = AS.CATEGORIES.map((name) => {
+        const idx = S.skus.map((s, i) => (s.category === name ? i : -1)).filter((i) => i >= 0);
+        return { name, x0: colX0[idx[0]], x1: colX0[idx[idx.length - 1]] + cw + 2 };
+      });
+      const clusterSpans = AS.CLUSTERS.map((name) => {
+        const idx = S.stores.map((s, i) => (s.cluster === name ? i : -1)).filter((i) => i >= 0);
+        return { name, y0: rowY0[idx[0]], y1: rowY0[idx[idx.length - 1]] + rh };
+      });
+      S.layout = {
+        W, H, labelW, cw, rh, top, cells: S.cells, stores: S.stores, skus: S.skus, catSpans, clusterSpans,
+        colX: (i) => colX0[i], rowY: (i) => rowY0[i],
+        colAt: (px) => { for (let i = 0; i < colX0.length; i++) if (px >= colX0[i] && px < colX0[i] + cw) return i; return -1; },
+        rowAt: (py) => { for (let i = 0; i < rowY0.length; i++) if (py >= rowY0[i] && py < rowY0[i] + rh) return i; return -1; },
+      };
+      const dpr = window.devicePixelRatio || 1;
+      S.canvas.width = Math.round(W * dpr);
+      S.canvas.height = Math.round(H * dpr);
+      S.canvas.style.height = H + 'px';
+      S.canvas.setAttribute('aria-label', `Grid of ${S.stores.length} stores by ${S.skus.length} SKUs, colored by ${AS.colorBy === 'st' ? 'sell-through' : 'who picked the SKU'}`);
+      // Color key.
+      const key = [];
+      if (AS.colorBy === 'st') {
+        const c = document.createElement('canvas');
+        c.width = 160; c.height = 10;
+        const g = c.getContext('2d');
+        for (let i = 0; i < 160; i++) { g.fillStyle = AS.stScale(i / 160 * 100); g.fillRect(i, 0, 1, 10); }
+        const lab = (t) => { const s = document.createElement('span'); s.textContent = t; return s; };
+        key.push(lab('Sell-through 0%'), c, lab('100%'), lab(`· ${AS.TARGET_PCT}% target is the pale middle`));
+      } else {
+        [['Recommended, kept', 0], ['Added by planner', 1]].forEach(([t, i]) => {
+          const s = document.createElement('span');
+          s.style.display = 'inline-flex'; s.style.alignItems = 'center'; s.style.gap = '6px';
+          const sw = document.createElement('i'); sw.className = 'as-sw'; sw.style.background = AS.color(i);
+          s.append(sw, document.createTextNode(t));
+          key.push(s);
+        });
+      }
+      const drop = document.createElement('span');
+      drop.style.display = 'inline-flex'; drop.style.alignItems = 'center'; drop.style.gap = '6px';
+      const box = document.createElement('i'); box.className = 'as-sw'; box.style.border = '1px solid var(--color-fg-muted)';
+      drop.append(box, document.createTextNode('Recommended, dropped by planner'));
+      key.push(drop);
+      S.scale.replaceChildren(...key);
+      S.paint();
+    },
+  });
+</script>
+
+<script>
+  // Weekly curve.
+  dash.draw('curve', (el) => {
+    const d = AS.gate(el, 'curve');
+    if (!d) return;
+    const rows = d.data;
+    const W = Math.max(260, el.clientWidth || 500);
+    const H = 280;
+    const m = { t: 12, r: 64, b: 28, l: 40 };
+    const x = d3.scaleLinear([1, 12], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, 100], [H - m.b, m.t]);
+    const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H)
+      .attr('role', 'img').attr('aria-label', 'Cumulative sell-through by week for recommended and planner-added SKUs, with the target path');
+    svg.append('g').selectAll('line').data([0, 25, 50, 75, 100]).join('line').attr('class', 'as-gridline')
+      .attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y);
+    svg.append('g').attr('class', 'as-axis').attr('transform', `translate(0,${H - m.b})`)
+      .call(d3.axisBottom(x).ticks(W < 400 ? 4 : 6).tickFormat((w) => 'Wk ' + w).tickSizeOuter(0));
+    svg.append('g').attr('class', 'as-axis').attr('transform', `translate(${m.l},0)`)
+      .call(d3.axisLeft(y).tickValues([0, 25, 50, 75, 100]).tickFormat((v) => v + '%').tickSize(0).tickPadding(8))
+      .call((g) => g.select('.domain').remove());
+    const target = d3.range(1, 12.01, 0.25).map((w) => [w, AS.targetAt(w)]);
+    svg.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => y(p[1]))(target)).attr('fill', 'none')
+      .style('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 4').attr('stroke-width', 1.5);
+    const series = [['recommended_pct', 0, 'Recommended'], ['planner_pct', 1, 'Planner adds']];
+    series.forEach(([field, i]) => {
+      const pts = rows.filter((r) => r[field] != null);
+      svg.append('path').datum(pts).attr('fill', 'none').attr('stroke-width', 2.5).attr('stroke-linejoin', 'round')
+        .style('stroke', AS.color(i)).attr('d', d3.line().x((r) => x(r.week)).y((r) => y(r[field])));
+    });
+    // End labels, nudged apart.
+    const last = rows[rows.length - 1] || {};
+    const ends = series.filter(([f]) => last[f] != null).map(([f, i]) => ({ f, i, y: y(last[f]) }));
+    ends.push({ f: null, i: -1, y: y(AS.targetAt(12)) });
+    ends.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 14) ends[k].y = ends[k - 1].y + 14;
+    ends.forEach((e) => {
+      const t = svg.append('text').attr('class', 'as-endlabel').attr('x', W - m.r + 6).attr('y', e.y).attr('dy', '0.35em');
+      if (e.f) {
+        t.style('fill', AS.color(e.i)).text(AS.pct(last[e.f]))
+          .attr('data-source', 'curve').attr('data-field', e.f).attr('data-where', 'week=12');
+      } else t.attr('class', 'as-endlabel as-label').text(AS.TARGET_PCT + '% target');
+    });
+    const tip = document.createElement('div');
+    tip.className = 'as-tip';
+    tip.hidden = true;
+    const guide = svg.append('line').style('stroke', 'var(--cds-chart-reference)').attr('y1', m.t).attr('y2', H - m.b).attr('opacity', 0);
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+      .on('pointermove', (event) => {
+        const wk = Math.max(1, Math.min(12, Math.round(x.invert(d3.pointer(event)[0]))));
+        const r = rows[wk - 1];
+        if (!r) return;
+        guide.attr('x1', x(wk)).attr('x2', x(wk)).attr('opacity', 1);
+        const h = document.createElement('div'); h.className = 'as-tip-h'; h.textContent = 'End of week ' + wk;
+        const dl = document.createElement('dl');
+        [['Recommended, kept', r.recommended_pct], ['Added by planner', r.planner_pct], ['Target', AS.targetAt(wk)]].forEach(([k, v]) => {
+          const dt = document.createElement('dt'); dt.textContent = k;
+          const dd = document.createElement('dd'); dd.textContent = v == null ? '—' : AS.pct(v);
+          dl.append(dt, dd);
+        });
+        tip.replaceChildren(h, dl);
+        tip.hidden = false;
+        const tw = tip.offsetWidth;
+        tip.style.left = (x(wk) + 14 + tw > W ? x(wk) - 14 - tw : x(wk) + 14) + 'px';
+        tip.style.top = '8px';
+      })
+      .on('pointerleave', () => { tip.hidden = true; guide.attr('opacity', 0); });
+    el.replaceChildren(svg.node(), tip);
+  });
+
+  // SKU scatter.
+  dash.draw('scatter', (el) => {
+    const d = AS.gate(el, 'sku_summary');
+    if (!d) return;
+    const { sku } = dash.params();
+    const rows = d.data.filter((r) => r.sell_through_pct != null);
+    const W = Math.max(260, el.clientWidth || 500);
+    const H = 300;
+    const m = { t: 12, r: 14, b: 40, l: 40 };
+    const x = d3.scaleLinear([0, 100], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, 100], [H - m.b, m.t]);
+    const r = d3.scaleSqrt([0, d3.max(rows, (o) => o.sold_units) || 1], [2, W < 400 ? 8 : 11]);
+    const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H)
+      .attr('role', 'img').attr('aria-label', 'Scatter of SKUs: share of carrying stores where recommended against sell-through');
+    svg.append('g').selectAll('line').data([0, 25, 50, 75, 100]).join('line').attr('class', 'as-gridline')
+      .attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y);
+    svg.append('g').attr('class', 'as-axis').attr('transform', `translate(0,${H - m.b})`)
+      .call(d3.axisBottom(x).tickValues([0, 25, 50, 75, 100]).tickFormat((v) => v + '%').tickSizeOuter(0));
+    svg.append('text').attr('class', 'as-label').attr('x', (m.l + W - m.r) / 2).attr('y', H - 6).attr('text-anchor', 'middle')
+      .text('Stores where the engine recommended it');
+    svg.append('g').attr('class', 'as-axis').attr('transform', `translate(${m.l},0)`)
+      .call(d3.axisLeft(y).tickValues([0, 25, 50, 75, 100]).tickFormat((v) => v + '%').tickSize(0).tickPadding(8))
+      .call((g) => g.select('.domain').remove());
+    svg.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(AS.TARGET_PCT)).attr('y2', y(AS.TARGET_PCT))
+      .style('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 4');
+    svg.append('text').attr('class', 'as-label').attr('x', m.l + 4).attr('y', y(AS.TARGET_PCT) - 5).attr('text-anchor', 'start').text(AS.TARGET_PCT + '% target');
+    const sorted = rows.slice().sort((a, b) => b.sold_units - a.sold_units);
+    svg.append('g').selectAll('circle').data(sorted).join('circle')
+      .attr('cx', (o) => x(o.recommended_share_pct)).attr('cy', (o) => y(Math.min(100, o.sell_through_pct))).attr('r', (o) => r(o.sold_units))
+      .style('fill', (o) => AS.color(AS.CATEGORIES.indexOf(o.category)))
+      .attr('fill-opacity', (o) => (sku && o.sku !== sku ? 0.15 : 0.7))
+      .style('stroke', (o) => (o.sku === sku ? 'var(--color-fg)' : 'var(--color-panel)'))
+      .attr('stroke-width', (o) => (o.sku === sku ? 2 : 0.75));
+    const tip = document.createElement('div');
+    tip.className = 'as-tip';
+    tip.hidden = true;
+    const ring = svg.append('circle').attr('fill', 'none').style('stroke', 'var(--color-fg)').attr('stroke-width', 1.5).attr('opacity', 0);
+    const delaunay = d3.Delaunay.from(sorted, (o) => x(o.recommended_share_pct), (o) => y(Math.min(100, o.sell_through_pct)));
+    let current = null;
+    svg.append('rect').attr('x', 0).attr('y', 0).attr('width', W).attr('height', H - m.b).attr('fill', 'transparent').style('cursor', 'pointer')
+      .on('pointermove', (event) => {
+        const [px, py] = d3.pointer(event);
+        const i = delaunay.find(px, py);
+        const o = sorted[i];
+        if (!o || Math.hypot(x(o.recommended_share_pct) - px, y(Math.min(100, o.sell_through_pct)) - py) > 30) {
+          current = null; tip.hidden = true; ring.attr('opacity', 0); return;
+        }
+        current = o;
+        ring.attr('cx', x(o.recommended_share_pct)).attr('cy', y(Math.min(100, o.sell_through_pct))).attr('r', r(o.sold_units) + 3).attr('opacity', 1);
+        const h = document.createElement('div'); h.className = 'as-tip-h'; h.textContent = o.sku_name;
+        const s = document.createElement('div'); s.className = 'as-tip-s'; s.textContent = o.sku + ' · ' + o.category;
+        const dl = document.createElement('dl');
+        [['Sell-through', AS.pct(o.sell_through_pct)], ['Stores carrying', String(o.stores_carrying)],
+          ['Recommended in', AS.pct(o.recommended_share_pct) + ' of them'], ['Units sold', d3.format(',')(o.sold_units)]]
+          .forEach(([k, v]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; dl.append(dt, dd); });
+        tip.replaceChildren(h, s, dl);
+        tip.hidden = false;
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        tip.style.left = (px + 16 + tw > W ? Math.max(0, px - 16 - tw) : px + 16) + 'px';
+        tip.style.top = Math.max(0, Math.min(H - th, py - th / 2)) + 'px';
+      })
+      .on('pointerleave', () => { current = null; tip.hidden = true; ring.attr('opacity', 0); })
+      .on('click', () => { if (current) dash.setParams({ sku: sku === current.sku ? '' : current.sku }); });
+    el.replaceChildren(svg.node(), tip);
+  });
+</script>
+
+<script>
+  // Action tables.
+  const actionRows = (name, id, cols, emptyText) => dash.draw(name, (tbody) => {
+    const d = dash.data(id);
+    const msg = (t) => { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 4; td.className = 'as-muted'; td.textContent = t; tr.append(td); return tr; };
+    if (d.status === 'loading') { tbody.replaceChildren(msg('Loading…')); return; }
+    if (d.status !== 'ok') { tbody.replaceChildren(msg(d.status === 'error' || d.status === 'missing' ? 'This table didn’t load. Sources says why.' : '—')); return; }
+    if (!d.data.length) { tbody.replaceChildren(msg(emptyText)); return; }
+    const p = dash.params();
+    tbody.replaceChildren(...d.data.map((r) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = r.store_id + ',' + r.sku;
+      tr.tabIndex = 0;
+      const store = document.createElement('td');
+      store.append(document.createTextNode(r.store));
+      const sc = document.createElement('small'); sc.textContent = r.cluster; store.append(sc);
+      const skuTd = document.createElement('td');
+      skuTd.append(document.createTextNode(r.sku_name));
+      const sd = document.createElement('small'); sd.textContent = r.decision; skuTd.append(sd);
+      tr.append(store, skuTd, ...cols.map(([f, fmt]) => { const td = document.createElement('td'); td.className = 'num'; td.textContent = fmt(r[f]); return td; }));
+      const pick = () => dash.setParams(p.store === r.store_id && p.sku === r.sku ? { store: '', sku: '' } : { store: r.store_id, sku: r.sku });
+      tr.addEventListener('click', pick);
+      tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+      return tr;
+    }));
+  });
+  actionRows('slow-rows', 'actions_slow', [['sell_through_pct', AS.pct], ['on_hand', d3.format(',')]], 'Nothing in this view is selling that slowly.');
+  actionRows('chase-rows', 'actions_chase', [['stockout_weeks', String], ['est_lost_units', d3.format(',')]], 'Nothing in this view sold out that early.');
+</script>
