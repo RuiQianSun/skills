@@ -1,0 +1,973 @@
+<meta name="dash-one-writer">
+<meta name="dash-form" content="dashboard">
+<style>
+  .sx { display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+  .sx-head { display: grid; gap: var(--cds-gap-sm); }
+  .sx-eyebrow { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); letter-spacing: .06em; text-transform: uppercase; }
+  .sx-title { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); text-wrap: balance; }
+  .sx-lede { margin: 0; max-width: 68ch; font-size: var(--cds-font-size-body); line-height: 1.55; }
+  .sx-lede b { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .sx-muted { color: var(--color-fg-muted); }
+  .sx-good { color: var(--color-ok); }
+  .sx-bad { color: var(--color-bad); }
+
+  .sx-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--cds-gap-md); }
+  .sx-field { display: grid; gap: var(--cds-gap-xs); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .sx-range { display: inline-flex; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); overflow: hidden; }
+  .sx-range button, .sx-btn { font: inherit; font-size: var(--cds-font-size-caption); color: var(--color-fg); background: var(--color-panel); border: 0; padding: 6px 12px; cursor: pointer; }
+  .sx-range button + button { border-left: 1px solid var(--color-border-line); }
+  .sx-range button[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); }
+  .sx-btn { border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); }
+  .sx-btn:hover, .sx-range button:hover { filter: brightness(0.96); }
+  .sx-window { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; padding-bottom: 6px; }
+  .sx button:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+
+  .sx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: var(--cds-gap-md); }
+  .sx-kpi, .sx-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .sx-kpi { display: grid; gap: var(--cds-gap-xs); align-content: start; }
+  .sx-kpi h3 { margin: 0; font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); }
+  .sx-kpi-value { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; min-height: 1.2em; }
+  .sx-kpi-delta { margin: 0; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+
+  .sx-card { display: grid; gap: var(--cds-gap-md); align-content: start; }
+  .sx-card h2 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); text-wrap: balance; }
+  .sx-card-sub { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); max-width: 70ch; }
+  .sx-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: var(--cds-gap-lg); }
+
+  .sx-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs) var(--cds-gap-sm); }
+  .sx-legend button { font: inherit; font-size: var(--cds-font-size-caption); display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--color-border-line); border-radius: 999px; background: transparent; color: var(--color-fg); cursor: pointer; }
+  .sx-legend button[aria-pressed="true"] { border-color: var(--color-fg); }
+  .sx-legend button.is-dim { opacity: .55; }
+  .sx-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  .sx-chart { position: relative; min-height: 240px; }
+  .sx-overview { position: relative; min-height: 72px; }
+  .sx-mix { min-height: 220px; display: grid; gap: 6px; align-content: start; container-type: inline-size; }
+  .sx-matrix { min-height: 200px; overflow-x: auto; }
+  .sx-surface { position: relative; min-height: 340px; }
+  .sx-chart svg, .sx-overview svg { display: block; overflow: visible; }
+  .sx-axis text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .sx-axis path, .sx-axis line { stroke: var(--cds-chart-axis); }
+  .sx-gridline { stroke: var(--cds-chart-grid); }
+  .sx-event line { stroke: var(--cds-chart-reference); stroke-dasharray: 3 3; }
+  .sx-event text { fill: var(--cds-text-secondary); font-size: 11px; font-family: var(--font-anthropic-sans); }
+  .sx-brush .selection { fill: var(--color-fg); fill-opacity: .08; stroke: var(--color-fg-muted); }
+  .sx-brush .handle { fill: var(--color-fg-muted); fill-opacity: .35; }
+  .sx-hint { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+
+  .sx-tip { position: absolute; top: 8px; left: 0; z-index: 2; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: 8px 10px; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; min-width: 160px; }
+  .sx-tip-date { color: var(--cds-text-secondary); margin-bottom: 4px; }
+  .sx-tip-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; }
+
+  .sx-mix-row { font: inherit; color: var(--color-fg); text-align: left; display: grid; grid-template-columns: minmax(6.5em, 8.5em) 1fr auto; gap: 4px 10px; align-items: center; padding: 6px 8px; border: 1px solid transparent; border-radius: var(--cds-radius); background: transparent; cursor: pointer; }
+  .sx-mix-row:hover { background: var(--color-bg); }
+  .sx-mix-row.is-on { border-color: var(--color-fg); }
+  .sx-mix-row.is-dim { opacity: .55; }
+  .sx-mix-name { font-size: var(--cds-font-size-body); }
+  .sx-mix-track { height: 12px; background: var(--color-bg); border-radius: 3px; overflow: hidden; }
+  .sx-mix-fill { height: 100%; border-radius: 3px; }
+  .sx-mix-num { font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  @container (max-width: 440px) {
+    .sx-mix-row { grid-template-columns: 1fr auto; }
+    .sx-mix-track { grid-column: 1 / -1; grid-row: 2; }
+  }
+
+  .sx-mtx { display: grid; grid-template-columns: minmax(7em, auto) repeat(5, minmax(64px, 1fr)); gap: 4px; min-width: 430px; }
+  .sx-mtx-h { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); align-self: end; padding: 0 4px 4px; }
+  .sx-mtx-r { font-size: var(--cds-font-size-body); align-self: center; }
+  .sx-cell { font: inherit; border: 2px solid transparent; border-radius: 6px; padding: 10px 6px; cursor: pointer; color: var(--color-fg); display: grid; gap: 2px; text-align: center; }
+  .sx-cell.is-strong { color: #fff; }
+  .sx-cell.is-on { border-color: var(--color-fg); }
+  .sx-cell b { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .sx-cell small { font-size: 11px; opacity: .8; font-variant-numeric: tabular-nums; }
+
+  .sx-3d-bar { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); }
+  .sx-3d { position: relative; }
+  .sx-3d canvas { display: block; width: 100%; touch-action: pan-y; cursor: grab; }
+  .sx-3d canvas:active { cursor: grabbing; }
+  .sx-3d-peak { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .sx-3d-peak b { color: var(--color-fg); font-weight: var(--cds-font-weight-medium); }
+  .sx-fail { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+
+  .sx-notes { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .sx-notes summary { cursor: pointer; color: var(--color-fg); }
+  .sx-notes dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; max-width: 72ch; }
+  .sx-notes dt { color: var(--color-fg); }
+  .sx-notes dd { margin: 0; }
+  @media (max-width: 520px) { .sx-notes dl { grid-template-columns: 1fr; } .sx-notes dd { margin-bottom: 6px; } }
+</style>
+
+<div class="sx">
+  <header class="sx-head" id="overview">
+    <p class="sx-eyebrow">Sample data · synthetic web traffic</p>
+    <h1 class="sx-title">Signal Explorer</h1>
+    <p class="sx-lede">Across <span data-draw="t-scope">—</span>, the selected <span data-draw="k-days" data-source="kpis" data-field="days" data-row="0">—</span> days brought <b data-draw="k-sessions" data-source="kpis" data-field="sessions" data-row="0">—</b> sessions, <b data-draw="k-sessions-chg" data-source="kpis" data-field="sessions_change_pct" data-row="0">—</b> on the period before. <span data-draw="t-top">—</span></p>
+  </header>
+
+  <div class="sx-controls" id="filters">
+    <label class="sx-field">Region
+      <select class="dash-select" id="f-region" data-param="region">
+        <option value="">All regions</option>
+        <option value="North America">North America</option>
+        <option value="EMEA">EMEA</option>
+        <option value="APAC">APAC</option>
+      </select>
+    </label>
+    <label class="sx-field">Channel
+      <select class="dash-select" id="f-channel" data-param="channel">
+        <option value="">All channels</option>
+        <option value="Organic search">Organic search</option>
+        <option value="Paid ads">Paid ads</option>
+        <option value="Social">Social</option>
+        <option value="Email">Email</option>
+        <option value="Referral">Referral</option>
+      </select>
+    </label>
+    <div class="sx-field">Window
+      <div class="sx-range" role="group" aria-label="Time window">
+        <button type="button" data-days="28" aria-pressed="false">4 weeks</button>
+        <button type="button" data-days="91" aria-pressed="false">13 weeks</button>
+        <button type="button" data-days="182" aria-pressed="false">26 weeks</button>
+        <button type="button" data-days="364" aria-pressed="false">52 weeks</button>
+      </div>
+    </div>
+    <p class="sx-window" data-draw="window-label">—</p>
+    <button type="button" class="sx-btn" id="f-clear" hidden>Clear filters</button>
+  </div>
+
+  <section class="sx-kpis" id="kpis" aria-label="Totals for the selected window">
+    <article class="sx-kpi" id="kpi-sessions">
+      <h3>Sessions</h3>
+      <p class="sx-kpi-value" data-draw="k-sessions" data-source="kpis" data-field="sessions" data-row="0">—</p>
+      <p class="sx-kpi-delta"><span data-draw="k-sessions-chg" data-source="kpis" data-field="sessions_change_pct" data-row="0">—</span> <span class="sx-muted">vs previous period</span></p>
+    </article>
+    <article class="sx-kpi" id="kpi-signups">
+      <h3>Signups</h3>
+      <p class="sx-kpi-value" data-draw="k-signups" data-source="kpis" data-field="signups" data-row="0">—</p>
+      <p class="sx-kpi-delta"><span data-draw="k-signups-chg" data-source="kpis" data-field="signups_change_pct" data-row="0">—</span> <span class="sx-muted">vs previous period</span></p>
+    </article>
+    <article class="sx-kpi" id="kpi-conversion">
+      <h3>Conversion rate</h3>
+      <p class="sx-kpi-value" data-draw="k-conv" data-source="kpis" data-field="conversion_pct" data-row="0">—</p>
+      <p class="sx-kpi-delta"><span data-draw="k-conv-chg" data-source="kpis" data-field="conversion_change_pts" data-row="0">—</span> <span class="sx-muted">points vs previous period</span></p>
+    </article>
+    <article class="sx-kpi" id="kpi-revenue">
+      <h3>Revenue</h3>
+      <p class="sx-kpi-value" data-draw="k-revenue" data-source="kpis" data-field="revenue" data-row="0">—</p>
+      <p class="sx-kpi-delta"><span data-draw="k-revenue-chg" data-source="kpis" data-field="revenue_change_pct" data-row="0">—</span> <span class="sx-muted">vs previous period</span></p>
+    </article>
+  </section>
+
+  <section class="sx-card" id="trend">
+    <h2>Daily sessions by channel, 7-day average</h2>
+    <div class="sx-legend" role="group" aria-label="Pick a channel">
+      <button type="button" data-channel="Organic search" aria-pressed="false"><span class="sx-swatch" data-ci="0"></span>Organic search</button>
+      <button type="button" data-channel="Paid ads" aria-pressed="false"><span class="sx-swatch" data-ci="1"></span>Paid ads</button>
+      <button type="button" data-channel="Social" aria-pressed="false"><span class="sx-swatch" data-ci="2"></span>Social</button>
+      <button type="button" data-channel="Email" aria-pressed="false"><span class="sx-swatch" data-ci="3"></span>Email</button>
+      <button type="button" data-channel="Referral" aria-pressed="false"><span class="sx-swatch" data-ci="4"></span>Referral</button>
+    </div>
+    <div class="sx-chart dash-skeleton" data-draw="trend" data-source="daily_by_channel"></div>
+    <div class="sx-overview dash-skeleton" data-draw="overview" data-source="daily_by_channel"></div>
+    <p class="sx-hint">Drag across the strip above to pick any window. Dashed lines mark events built into the sample data.</p>
+  </section>
+
+  <div class="sx-grid2">
+    <section class="sx-card" id="mix">
+      <h2>Channels in this window</h2>
+      <p class="sx-card-sub">Sessions, share of sessions and change on the previous period. Pick a row to filter the page.</p>
+      <div class="sx-mix dash-skeleton" data-draw="mix" data-source="channel_mix"></div>
+    </section>
+    <section class="sx-card" id="matrix">
+      <h2>Conversion rate by region and channel</h2>
+      <p class="sx-card-sub">Signups per session in this window. Darker cells convert better. Pick a cell to filter both.</p>
+      <div class="sx-matrix dash-skeleton" data-draw="matrix" data-source="region_channel"></div>
+    </section>
+  </div>
+
+  <section class="sx-card" id="week3d">
+    <h2>A typical week: sessions per hour, by weekday (UTC)</h2>
+    <p class="sx-card-sub">Mean sessions in each hour over the last 13 weeks, for the region picked above. Height and color both show traffic. Drag to turn it; point at the surface to read an hour.</p>
+    <div class="sx-surface dash-skeleton" data-draw="surface" data-source="hour_grid"></div>
+  </section>
+
+  <details class="sx-notes" id="notes">
+    <summary>Definitions and how the sample data was made</summary>
+    <dl>
+      <dt>Session</dt><dd>One visit to the site, counted on the day it started.</dd>
+      <dt>Signup</dt><dd>A visit that ended with a new account.</dd>
+      <dt>Conversion rate</dt><dd>Signups divided by sessions over the same days.</dd>
+      <dt>Revenue</dt><dd>First-month revenue from those signups, in US dollars.</dd>
+      <dt>Previous period</dt><dd>The same number of days just before the window. A window that starts too early to have one shows no change.</dd>
+      <dt>Sample data</dt><dd>Every number is synthetic, from a script you can read in Sources. It builds in a Paid ads budget cut on 1 March 2026, a localized APAC launch on 15 June 2026, a one-day outage on 9 July 2026, monthly Email sends on the first Tuesday, and late-November holiday peaks.</dd>
+    </dl>
+  </details>
+</div>
+
+<script>
+  window.SX = (() => {
+    const CHANNELS = ['Organic search', 'Paid ads', 'Social', 'Email', 'Referral'];
+    const REGIONS = ['North America', 'EMEA', 'APAC'];
+    const EVENTS = [
+      { date: '2026-03-01', label: 'Paid budget cut' },
+      { date: '2026-06-15', label: 'APAC launch' },
+      { date: '2026-07-09', label: 'Outage' },
+    ];
+    const parse = d3.utcParse('%Y-%m-%d');
+    const short = (v) => d3.format('.3~s')(v).replace('G', 'B');
+    const money = (v) => '$' + short(v);
+    const pct = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%';
+    const pts = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+    const color = (i) => dash.colors[i % dash.colors.length];
+    function gate(el, id, inline) {
+      const d = dash.data(id);
+      if (d.status === 'ok') { el.classList.remove('dash-skeleton'); return d; }
+      if (d.status === 'loading') {
+        el.classList.add('dash-skeleton');
+        if (inline) el.textContent = '—'; else el.replaceChildren();
+        return null;
+      }
+      el.classList.remove('dash-skeleton');
+      if (inline) { el.textContent = '—'; return null; }
+      const p = document.createElement('p');
+      p.className = 'sx-fail';
+      p.textContent = d.status === 'error' || d.status === 'missing'
+        ? 'This part didn’t load. Sources says why.' : '—';
+      el.replaceChildren(p);
+      return null;
+    }
+    return { CHANNELS, REGIONS, EVENTS, parse, short, money, pct, pts, color, gate };
+  })();
+</script>
+
+<script>
+  dash.calc('daily_by_channel', {
+    title: 'Daily sessions by channel',
+    description: 'Sample daily rows summed by date and channel, for the region picked in the Region filter.',
+    inputs: ['daily'],
+    fn: (daily) => {
+      const { region } = dash.params();
+      const sums = new Map();
+      for (const r of daily) {
+        if (region && r.region !== region) continue;
+        const key = r.date + '|' + r.channel;
+        const s = sums.get(key) || { date: r.date, channel: r.channel, sessions: 0, signups: 0 };
+        s.sessions += Number(r.sessions);
+        s.signups += Number(r.signups);
+        sums.set(key, s);
+      }
+      return [...sums.values()];
+    },
+  });
+
+  dash.calc('kpis', {
+    title: 'Totals for the window',
+    description: 'Sessions, signups, conversion and revenue in the window, and their change on the same number of days just before it. Follows the Region and Channel filters.',
+    inputs: ['daily'],
+    fn: (daily) => {
+      const { region, channel, from, to } = dash.params();
+      const DAY = 864e5;
+      const iso = (t) => new Date(t).toISOString().slice(0, 10);
+      const days = Math.round((Date.parse(to) - Date.parse(from)) / DAY) + 1;
+      const prevFrom = iso(Date.parse(from) - days * DAY);
+      const prevTo = iso(Date.parse(from) - DAY);
+      const cur = { sessions: 0, signups: 0, revenue: 0 };
+      const prev = { sessions: 0, signups: 0, revenue: 0 };
+      let first = '9999-12-31';
+      for (const r of daily) {
+        if (r.date < first) first = r.date;
+        if (region && r.region !== region) continue;
+        if (channel && r.channel !== channel) continue;
+        const b = r.date >= from && r.date <= to ? cur : r.date >= prevFrom && r.date <= prevTo ? prev : null;
+        if (!b) continue;
+        b.sessions += Number(r.sessions);
+        b.signups += Number(r.signups);
+        b.revenue += Number(r.revenue);
+      }
+      const hasPrev = prevFrom >= first && prev.sessions > 0;
+      const change = (a, b) => (hasPrev && b ? Math.round((a / b - 1) * 1000) / 10 : null);
+      const conv = cur.sessions ? cur.signups / cur.sessions : null;
+      const convPrev = prev.sessions ? prev.signups / prev.sessions : null;
+      return [{
+        from, to, days, prev_from: prevFrom, prev_to: prevTo,
+        sessions: cur.sessions,
+        signups: cur.signups,
+        revenue: Math.round(cur.revenue),
+        conversion_pct: conv == null ? null : Math.round(conv * 10000) / 100,
+        sessions_change_pct: change(cur.sessions, prev.sessions),
+        signups_change_pct: change(cur.signups, prev.signups),
+        revenue_change_pct: change(cur.revenue, prev.revenue),
+        conversion_change_pts: hasPrev && conv != null ? Math.round((conv - convPrev) * 10000) / 100 : null,
+      }];
+    },
+  });
+
+  dash.calc('channel_mix', {
+    title: 'Sessions by channel in the window',
+    description: 'Each channel’s sessions, share of sessions, conversion and change on the previous period of equal length. Follows the Region filter.',
+    inputs: ['daily'],
+    fn: (daily) => {
+      const { region, from, to } = dash.params();
+      const DAY = 864e5;
+      const iso = (t) => new Date(t).toISOString().slice(0, 10);
+      const days = Math.round((Date.parse(to) - Date.parse(from)) / DAY) + 1;
+      const prevFrom = iso(Date.parse(from) - days * DAY);
+      const prevTo = iso(Date.parse(from) - DAY);
+      const by = new Map();
+      let first = '9999-12-31';
+      for (const r of daily) {
+        if (r.date < first) first = r.date;
+        if (region && r.region !== region) continue;
+        const c = by.get(r.channel) || { channel: r.channel, sessions: 0, signups: 0, prev: 0 };
+        if (r.date >= from && r.date <= to) { c.sessions += Number(r.sessions); c.signups += Number(r.signups); }
+        else if (r.date >= prevFrom && r.date <= prevTo) c.prev += Number(r.sessions);
+        by.set(r.channel, c);
+      }
+      const hasPrev = prevFrom >= first;
+      const total = [...by.values()].reduce((a, c) => a + c.sessions, 0) || 1;
+      return [...by.values()].map((c) => ({
+        channel: c.channel,
+        sessions: c.sessions,
+        share_pct: Math.round((c.sessions / total) * 1000) / 10,
+        conversion_pct: c.sessions ? Math.round((c.signups / c.sessions) * 10000) / 100 : null,
+        growth_pct: hasPrev && c.prev ? Math.round((c.sessions / c.prev - 1) * 1000) / 10 : null,
+      }));
+    },
+  });
+
+  dash.calc('region_channel', {
+    title: 'Conversion by region and channel',
+    description: 'Signups divided by sessions for each region and channel in the window.',
+    inputs: ['daily'],
+    fn: (daily) => {
+      const { from, to } = dash.params();
+      const by = new Map();
+      for (const r of daily) {
+        if (r.date < from || r.date > to) continue;
+        const key = r.region + '|' + r.channel;
+        const c = by.get(key) || { region: r.region, channel: r.channel, sessions: 0, signups: 0 };
+        c.sessions += Number(r.sessions);
+        c.signups += Number(r.signups);
+        by.set(key, c);
+      }
+      return [...by.values()].map((c) => ({
+        ...c, conversion_pct: c.sessions ? Math.round((c.signups / c.sessions) * 10000) / 100 : null,
+      }));
+    },
+  });
+
+  dash.calc('hour_grid', {
+    title: 'Typical week by hour',
+    description: 'Mean sessions per hour for each weekday and UTC hour over the last 13 weeks, summed over the region picked in the Region filter.',
+    inputs: ['hourly'],
+    fn: (hourly) => {
+      const { region } = dash.params();
+      const by = new Map();
+      for (const r of hourly) {
+        if (region && r.region !== region) continue;
+        const key = r.weekday_index + '|' + r.hour_utc;
+        const c = by.get(key) || { weekday: r.weekday, weekday_index: Number(r.weekday_index), hour_utc: Number(r.hour_utc), sessions: 0 };
+        c.sessions = Math.round((c.sessions + Number(r.sessions)) * 10) / 10;
+        by.set(key, c);
+      }
+      return [...by.values()];
+    },
+  });
+</script>
+
+<script>
+  // Controls: listen, and keep their state in step with the filters.
+  (() => {
+    let lastDate = null;
+    const latest = () => {
+      if (lastDate) return lastDate;
+      const d = dash.data('daily');
+      if (d.status !== 'ok') return null;
+      lastDate = d3.max(d.data, (r) => r.date);
+      return lastDate;
+    };
+    document.querySelectorAll('[data-param]').forEach((sel) => {
+      sel.addEventListener('change', () => dash.setParams({ [sel.dataset.param]: sel.value }));
+    });
+    document.querySelectorAll('[data-days]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const to = latest();
+        if (!to) return;
+        const from = new Date(Date.parse(to) - (Number(b.dataset.days) - 1) * 864e5).toISOString().slice(0, 10);
+        dash.setParams({ from, to });
+      });
+    });
+    document.querySelectorAll('[data-channel]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const cur = dash.params().channel || '';
+        dash.setParams({ channel: cur === b.dataset.channel ? '' : b.dataset.channel });
+      });
+    });
+    document.querySelectorAll('.sx-swatch[data-ci]').forEach((s) => { s.style.background = SX.color(Number(s.dataset.ci)); });
+    document.querySelectorAll('#f-clear').forEach((b) => b.addEventListener('click', () => dash.resetParams()));
+
+    dash.onData(() => {
+      const p = dash.params();
+      document.querySelectorAll('[data-param]').forEach((sel) => {
+        if (document.activeElement !== sel) sel.value = p[sel.dataset.param] || '';
+      });
+      const to = latest();
+      const days = Math.round((Date.parse(p.to) - Date.parse(p.from)) / 864e5) + 1;
+      document.querySelectorAll('[data-days]').forEach((b) => {
+        b.setAttribute('aria-pressed', String(p.to === to && Number(b.dataset.days) === days));
+      });
+      document.querySelectorAll('[data-channel]').forEach((b) => {
+        b.setAttribute('aria-pressed', String(p.channel === b.dataset.channel));
+        b.classList.toggle('is-dim', Boolean(p.channel) && p.channel !== b.dataset.channel);
+      });
+      document.querySelectorAll('#f-clear').forEach((b) => {
+        b.hidden = !(p.region || p.channel || days !== 91 || (to && p.to !== to));
+      });
+    });
+  })();
+</script>
+
+<script>
+  // Words and numbers.
+  dash.draw('window-label', (el) => {
+    const { from, to } = dash.params();
+    if (!from || !to) { el.textContent = '—'; return; }
+    const f = d3.utcFormat('%b %-d, %Y');
+    el.textContent = f(SX.parse(from)) + ' to ' + f(SX.parse(to));
+  });
+  dash.draw('t-scope', (el) => {
+    const { region, channel } = dash.params();
+    el.textContent = !region && !channel ? 'all regions and channels'
+      : [region || 'all regions', channel ? channel : 'all channels'].join(', ');
+  });
+  const value = (name, field, fmt) => dash.draw(name, (el) => {
+    const d = SX.gate(el, 'kpis', true);
+    if (!d) return;
+    const v = d.data[0] && d.data[0][field];
+    el.textContent = v == null ? '—' : fmt(v);
+  });
+  value('k-days', 'days', (v) => String(v));
+  value('k-sessions', 'sessions', SX.short);
+  value('k-signups', 'signups', SX.short);
+  value('k-conv', 'conversion_pct', (v) => v.toFixed(2) + '%');
+  value('k-revenue', 'revenue', SX.money);
+  const delta = (name, field, fmt) => dash.draw(name, (el) => {
+    const d = SX.gate(el, 'kpis', true);
+    el.classList.remove('sx-good', 'sx-bad');
+    if (!d) return;
+    const v = d.data[0] && d.data[0][field];
+    if (v == null) { el.textContent = '—'; el.title = 'No earlier period of the same length in the data'; return; }
+    el.removeAttribute('title');
+    el.textContent = fmt(v);
+    if (v > 0) el.classList.add('sx-good');
+    if (v < 0) el.classList.add('sx-bad');
+  });
+  delta('k-sessions-chg', 'sessions_change_pct', SX.pct);
+  delta('k-signups-chg', 'signups_change_pct', SX.pct);
+  delta('k-revenue-chg', 'revenue_change_pct', SX.pct);
+  delta('k-conv-chg', 'conversion_change_pts', SX.pts);
+
+  dash.draw('t-top', (el) => {
+    const d = SX.gate(el, 'channel_mix', true);
+    if (!d) return;
+    const rows = d.data.filter((r) => r.growth_pct != null);
+    if (!rows.length) { el.textContent = ''; return; }
+    const best = rows.reduce((a, b) => (b.growth_pct > a.growth_pct ? b : a));
+    const name = document.createElement('b');
+    name.dataset.source = 'channel_mix';
+    name.dataset.field = 'channel';
+    name.dataset.where = 'channel=' + best.channel;
+    name.textContent = best.channel;
+    const g = document.createElement('b');
+    g.dataset.source = 'channel_mix';
+    g.dataset.field = 'growth_pct';
+    g.dataset.where = 'channel=' + best.channel;
+    g.textContent = SX.pct(best.growth_pct);
+    el.replaceChildren(name, document.createTextNode(best.growth_pct >= 0 ? ' grew fastest, ' : ' fell least, '), g, document.createTextNode('.'));
+  });
+</script>
+
+<script>
+  // Trend chart with crosshair tooltip.
+  dash.draw('trend', (el) => {
+    const d = SX.gate(el, 'daily_by_channel');
+    if (!d) return;
+    const { from, to, channel } = dash.params();
+    const byCh = d3.group(d.data, (r) => r.channel);
+    const series = SX.CHANNELS.map((ch, i) => {
+      const rows = (byCh.get(ch) || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+      const pts = [];
+      let sum = 0;
+      rows.forEach((r, j) => {
+        sum += r.sessions;
+        if (j >= 7) sum -= rows[j - 7].sessions;
+        if (j >= 6 && r.date >= from && r.date <= to) pts.push({ date: SX.parse(r.date), iso: r.date, v: sum / 7 });
+      });
+      return { ch, i, pts };
+    });
+    const W = Math.max(280, el.clientWidth || 600);
+    const H = W < 500 ? 240 : 300;
+    const m = { t: 22, r: 12, b: 26, l: 44 };
+    const x = d3.scaleUtc([SX.parse(from), SX.parse(to)], [m.l, W - m.r]);
+    const ymax = d3.max(series, (s) => d3.max(s.pts, (p) => p.v)) || 1;
+    const y = d3.scaleLinear([0, ymax * 1.05], [H - m.b, m.t]).nice();
+    const span = (SX.parse(to) - SX.parse(from)) / 864e5;
+    const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H)
+      .attr('role', 'img').attr('aria-label', `Seven-day average daily sessions for five channels from ${from} to ${to}`);
+    svg.append('g').selectAll('line').data(y.ticks(5)).join('line').attr('class', 'sx-gridline')
+      .attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y);
+    svg.append('g').attr('class', 'sx-axis').attr('transform', `translate(0,${H - m.b})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor((W - m.l - m.r) / 90)))
+        .tickFormat(d3.utcFormat(span > 200 ? '%b %Y' : '%b %-d')).tickSizeOuter(0));
+    svg.append('g').attr('class', 'sx-axis').attr('transform', `translate(${m.l},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('~s')).tickSize(0).tickPadding(8))
+      .call((g) => g.select('.domain').remove());
+    const ev = SX.EVENTS.filter((e) => e.date >= from && e.date <= to);
+    const eg = svg.append('g').selectAll('g').data(ev).join('g').attr('class', 'sx-event');
+    eg.append('line').attr('x1', (e) => x(SX.parse(e.date))).attr('x2', (e) => x(SX.parse(e.date)))
+      .attr('y1', m.t - 4).attr('y2', H - m.b);
+    eg.append('text').attr('x', (e) => x(SX.parse(e.date)) + (x(SX.parse(e.date)) > W * 0.75 ? -4 : 4))
+      .attr('text-anchor', (e) => (x(SX.parse(e.date)) > W * 0.75 ? 'end' : 'start'))
+      .attr('y', (e, i) => m.t - 8 + (i % 2) * 12).text((e) => e.label);
+    const line = d3.line().x((p) => x(p.date)).y((p) => y(p.v));
+    const order = series.slice().sort((a, b) => (a.ch === channel) - (b.ch === channel));
+    svg.append('g').selectAll('path').data(order).join('path')
+      .attr('fill', 'none').attr('d', (s) => line(s.pts))
+      .attr('stroke-width', (s) => (channel ? (s.ch === channel ? 2.5 : 1.25) : 1.75))
+      .attr('stroke-linejoin', 'round')
+      .style('stroke', (s) => (channel && s.ch !== channel ? 'var(--cds-chart-muted)' : SX.color(s.i)));
+    const guide = svg.append('line').style('stroke', 'var(--cds-chart-reference)').attr('y1', m.t).attr('y2', H - m.b).attr('opacity', 0);
+    const dots = svg.append('g').selectAll('circle').data(series).join('circle').attr('r', 3.5)
+      .style('fill', (s) => SX.color(s.i)).style('stroke', 'var(--color-panel)').attr('stroke-width', 1.5).attr('opacity', 0);
+    const tip = document.createElement('div');
+    tip.className = 'sx-tip';
+    tip.hidden = true;
+    const ref = series[0].pts;
+    const bis = d3.bisector((p) => p.date).center;
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b)
+      .attr('fill', 'transparent')
+      .on('pointermove', (event) => {
+        if (!ref.length) return;
+        const [px] = d3.pointer(event);
+        const k = bis(ref, x.invert(px));
+        const date = ref[k].date;
+        const vals = series.map((s) => ({ s, p: s.pts[k] })).filter((o) => o.p);
+        guide.attr('x1', x(date)).attr('x2', x(date)).attr('opacity', 1);
+        dots.attr('cx', x(date)).attr('cy', (s) => (s.pts[k] ? y(s.pts[k].v) : -99)).attr('opacity', 1);
+        const head = document.createElement('div');
+        head.className = 'sx-tip-date';
+        head.textContent = d3.utcFormat('%a %b %-d, %Y')(date) + ' · 7-day avg';
+        tip.replaceChildren(head, ...vals.sort((a, b) => b.p.v - a.p.v).map(({ s, p }) => {
+          const row = document.createElement('div');
+          row.className = 'sx-tip-row';
+          const sw = document.createElement('span');
+          sw.className = 'sx-swatch';
+          sw.style.background = SX.color(s.i);
+          const n = document.createElement('span');
+          n.textContent = s.ch;
+          const v = document.createElement('span');
+          v.textContent = d3.format(',.0f')(p.v);
+          row.append(sw, n, v);
+          return row;
+        }));
+        tip.hidden = false;
+        const tw = tip.offsetWidth;
+        const left = x(date) + 14 + tw > W ? x(date) - 14 - tw : x(date) + 14;
+        tip.style.left = Math.max(0, left) + 'px';
+      })
+      .on('pointerleave', () => { tip.hidden = true; guide.attr('opacity', 0); dots.attr('opacity', 0); });
+    el.replaceChildren(svg.node(), tip);
+  });
+
+  // Two-year overview strip with a brush that sets the window.
+  dash.draw('overview', (el) => {
+    const d = SX.gate(el, 'daily_by_channel');
+    if (!d) return;
+    const { from, to, channel } = dash.params();
+    const totals = d3.rollups(d.data.filter((r) => !channel || r.channel === channel), (v) => d3.sum(v, (r) => r.sessions), (r) => r.date)
+      .map(([date, v]) => ({ date: SX.parse(date), v })).sort((a, b) => a.date - b.date);
+    if (!totals.length) { el.replaceChildren(); return; }
+    const W = Math.max(280, el.clientWidth || 600);
+    const H = 72;
+    const m = { t: 4, r: 12, b: 20, l: 44 };
+    const x = d3.scaleUtc(d3.extent(totals, (p) => p.date), [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, d3.max(totals, (p) => p.v)], [H - m.b, m.t]);
+    const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H)
+      .attr('role', 'img').attr('aria-label', 'Total daily sessions over two years, with the selected window highlighted');
+    svg.append('path').datum(totals).attr('d', d3.area().x((p) => x(p.date)).y0(H - m.b).y1((p) => y(p.v)))
+      .style('fill', SX.color(0)).attr('fill-opacity', 0.22);
+    svg.append('path').datum(totals).attr('fill', 'none').attr('stroke-width', 1)
+      .attr('d', d3.line().x((p) => x(p.date)).y((p) => y(p.v))).style('stroke', SX.color(0));
+    svg.append('g').attr('class', 'sx-axis').attr('transform', `translate(0,${H - m.b})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor((W - m.l - m.r) / 100))).tickFormat(d3.utcFormat('%b %Y')).tickSizeOuter(0));
+    const iso = d3.utcFormat('%Y-%m-%d');
+    const [lo, hi] = x.domain();
+    const g = svg.append('g').attr('class', 'sx-brush');
+    const sel = [x(SX.parse(from)), x(SX.parse(to))];
+    const brush = d3.brushX().extent([[m.l, m.t], [W - m.r, H - m.b]]).on('end', (event) => {
+      if (!event.sourceEvent) return;
+      if (!event.selection) { g.call(brush.move, sel); return; }
+      let [a, b] = event.selection.map((px) => d3.utcDay.round(x.invert(px)));
+      if (b - a < 6 * 864e5) b = d3.utcDay.offset(a, 6);
+      if (b > hi) { a = d3.utcDay.offset(a, -Math.round((b - hi) / 864e5)); b = hi; }
+      if (a < lo) a = lo;
+      dash.setParams({ from: iso(a), to: iso(b) });
+    });
+    g.call(brush).call(brush.move, sel);
+    el.replaceChildren(svg.node());
+  });
+</script>
+
+<script>
+  // Channel list and region x channel matrix.
+  dash.draw('mix', (el) => {
+    const d = SX.gate(el, 'channel_mix');
+    if (!d) return;
+    const { channel } = dash.params();
+    const rows = d.data.slice().sort((a, b) => b.sessions - a.sessions);
+    const max = d3.max(rows, (r) => r.sessions) || 1;
+    el.replaceChildren(...rows.map((r) => {
+      const where = 'channel=' + r.channel;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sx-mix-row' + (channel === r.channel ? ' is-on' : '') + (channel && channel !== r.channel ? ' is-dim' : '');
+      b.setAttribute('aria-pressed', String(channel === r.channel));
+      const name = document.createElement('span');
+      name.className = 'sx-mix-name';
+      name.textContent = r.channel;
+      const track = document.createElement('span');
+      track.className = 'sx-mix-track';
+      const fill = document.createElement('span');
+      fill.className = 'sx-mix-fill';
+      fill.style.display = 'block';
+      fill.style.width = (100 * r.sessions / max) + '%';
+      fill.style.background = SX.color(SX.CHANNELS.indexOf(r.channel));
+      track.append(fill);
+      const num = document.createElement('span');
+      num.className = 'sx-mix-num';
+      const mk = (field, text, cls) => {
+        const s = document.createElement('span');
+        s.dataset.source = 'channel_mix';
+        s.dataset.field = field;
+        s.dataset.where = where;
+        s.textContent = text;
+        if (cls) s.className = cls;
+        return s;
+      };
+      num.append(
+        mk('sessions', SX.short(r.sessions)), document.createTextNode(' · '),
+        mk('share_pct', r.share_pct.toFixed(1) + '%'), document.createTextNode(' · '),
+        r.growth_pct == null ? document.createTextNode('—')
+          : mk('growth_pct', SX.pct(r.growth_pct), r.growth_pct >= 0 ? 'sx-good' : 'sx-bad'),
+      );
+      b.append(name, track, num);
+      b.addEventListener('click', () => dash.setParams({ channel: channel === r.channel ? '' : r.channel }));
+      return b;
+    }));
+  });
+
+  dash.draw('matrix', (el) => {
+    const d = SX.gate(el, 'region_channel');
+    if (!d) return;
+    const { region, channel } = dash.params();
+    const vals = d.data.map((r) => r.conversion_pct).filter((v) => v != null);
+    const lo = d3.min(vals), hi = d3.max(vals);
+    const grid = document.createElement('div');
+    grid.className = 'sx-mtx';
+    grid.append(document.createElement('span'));
+    SX.CHANNELS.forEach((ch) => {
+      const h = document.createElement('span');
+      h.className = 'sx-mtx-h';
+      h.textContent = ch;
+      grid.append(h);
+    });
+    SX.REGIONS.forEach((rg) => {
+      const rl = document.createElement('span');
+      rl.className = 'sx-mtx-r';
+      rl.textContent = rg;
+      grid.append(rl);
+      SX.CHANNELS.forEach((ch) => {
+        const r = d.data.find((o) => o.region === rg && o.channel === ch);
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        const t = r && hi > lo ? (r.conversion_pct - lo) / (hi - lo) : 0;
+        const on = region === rg && channel === ch;
+        cell.className = 'sx-cell' + (t > 0.72 ? ' is-strong' : '') + (on ? ' is-on' : '');
+        cell.style.background = `color-mix(in srgb, ${SX.color(0)} ${Math.round(10 + 88 * t)}%, var(--color-bg))`;
+        cell.setAttribute('aria-label', `${rg}, ${ch}: ${r ? r.conversion_pct.toFixed(2) + '% conversion' : 'no data'}`);
+        const v = document.createElement('b');
+        v.dataset.source = 'region_channel';
+        v.dataset.field = 'conversion_pct';
+        v.dataset.where = 'region=' + rg + '&channel=' + ch;
+        v.textContent = r ? r.conversion_pct.toFixed(2) + '%' : '—';
+        const s = document.createElement('small');
+        s.dataset.source = 'region_channel';
+        s.dataset.field = 'sessions';
+        s.dataset.where = 'region=' + rg + '&channel=' + ch;
+        s.textContent = r ? SX.short(r.sessions) + ' sessions' : '';
+        cell.append(v, s);
+        cell.addEventListener('click', () => dash.setParams(on ? { region: '', channel: '' } : { region: rg, channel: ch }));
+        grid.append(cell);
+      });
+    });
+    el.replaceChildren(grid);
+  });
+</script>
+
+<script>
+  // 3D surface of the typical week, drawn on a canvas.
+  dash.draw('surface', {
+    mount(el) {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const bar = document.createElement('div');
+      bar.className = 'sx-3d-bar';
+      const mkBtn = (text) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'sx-btn'; b.textContent = text; return b; };
+      const spin = mkBtn(reduce ? 'Turn slowly' : 'Pause turning');
+      const top = mkBtn('View from above');
+      const reset = mkBtn('Reset view');
+      bar.append(spin, top, reset);
+      const wrap = document.createElement('div');
+      wrap.className = 'sx-3d';
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('role', 'img');
+      const tip = document.createElement('div');
+      tip.className = 'sx-tip';
+      tip.hidden = true;
+      wrap.append(canvas, tip);
+      const peak = document.createElement('p');
+      peak.className = 'sx-3d-peak';
+      el.replaceChildren(bar, wrap, peak);
+      const HOME = { yaw: -0.75, pitch: 0.5 };
+      const S = { el, wrap, canvas, tip, peak, spin, yaw: HOME.yaw, pitch: HOME.pitch, auto: !reduce, target: null,
+        grid: null, max: 1, hover: null, drag: null, raf: 0, last: 0, visible: true, verts: [] };
+      const setAuto = (on) => { S.auto = on; spin.textContent = on ? 'Pause turning' : 'Turn slowly'; kick(); };
+      const loop = (t) => {
+        S.raf = 0;
+        const dt = S.last ? Math.min(50, t - S.last) : 16;
+        S.last = t;
+        if (S.auto && !S.drag) S.yaw += dt * 0.00022;
+        if (S.target) {
+          S.yaw += (S.target.yaw - S.yaw) * 0.12;
+          S.pitch += (S.target.pitch - S.pitch) * 0.12;
+          if (Math.abs(S.target.yaw - S.yaw) < 0.002 && Math.abs(S.target.pitch - S.pitch) < 0.002) S.target = null;
+        }
+        S.render();
+        if ((S.auto || S.target) && S.visible) S.raf = requestAnimationFrame(loop);
+        else S.last = 0;
+      };
+      const kick = () => { if (!S.raf) S.raf = requestAnimationFrame(loop); };
+      S.kick = kick;
+      spin.addEventListener('click', () => setAuto(!S.auto));
+      top.addEventListener('click', () => { setAuto(false); S.target = { yaw: Math.round(S.yaw / (2 * Math.PI)) * 2 * Math.PI, pitch: 1.45 }; kick(); });
+      reset.addEventListener('click', () => {
+        const turns = Math.round((S.yaw - HOME.yaw) / (2 * Math.PI));
+        S.target = { yaw: HOME.yaw + turns * 2 * Math.PI, pitch: HOME.pitch };
+        kick();
+      });
+      canvas.addEventListener('pointerdown', (e) => {
+        S.drag = { x: e.clientX, y: e.clientY, yaw: S.yaw, pitch: S.pitch, type: e.pointerType };
+        S.target = null;
+        canvas.setPointerCapture(e.pointerId);
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        const r = canvas.getBoundingClientRect();
+        const px = e.clientX - r.left, py = e.clientY - r.top;
+        if (S.drag) {
+          S.yaw = S.drag.yaw + (e.clientX - S.drag.x) * 0.01;
+          if (S.drag.type !== 'touch') S.pitch = Math.max(0.08, Math.min(1.5, S.drag.pitch + (e.clientY - S.drag.y) * 0.008));
+          S.hover = null;
+          S.render();
+          return;
+        }
+        let best = null, bd = 18 * 18;
+        for (const v of S.verts) {
+          const dd = (v.sx - px) ** 2 + (v.sy - py) ** 2;
+          if (dd < bd) { bd = dd; best = v; }
+        }
+        S.hover = best;
+        if (!S.auto) S.render();
+      });
+      const end = (e) => {
+        if (S.drag && Math.abs(e.clientX - S.drag.x) > 3 && S.auto) setAuto(false);
+        S.drag = null;
+      };
+      canvas.addEventListener('pointerup', end);
+      canvas.addEventListener('pointercancel', end);
+      canvas.addEventListener('pointerleave', () => { S.hover = null; S.tip.hidden = true; if (!S.auto) S.render(); });
+      S.io = new IntersectionObserver((entries) => {
+        S.visible = entries[0].isIntersecting;
+        if (S.visible) kick();
+      }, { root: document });
+      S.io.observe(canvas);
+
+      S.render = () => {
+        if (!S.grid) return;
+        const w = Math.max(260, S.el.clientWidth || 600);
+        const h = Math.round(Math.min(460, Math.max(300, w * 0.58)));
+        const dpr = window.devicePixelRatio || 1;
+        if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+          canvas.style.height = h + 'px';
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const cs = getComputedStyle(S.el);
+        const muted = cs.getPropertyValue('--color-fg-muted').trim() || '#888';
+        const gridC = cs.getPropertyValue('--cds-chart-grid').trim() || 'rgba(128,128,128,.3)';
+        const panel = cs.getPropertyValue('--color-panel').trim() || '#fff';
+        const cyw = Math.cos(S.yaw), syw = Math.sin(S.yaw), cp = Math.cos(S.pitch), sp = Math.sin(S.pitch);
+        const scale = Math.min(w * 0.3, h * 0.48);
+        const ox = w / 2, oy = h * 0.4 + scale * 0.3 * cp;
+        const P = (X, Y, Z) => {
+          const x1 = X * cyw - Z * syw, z1 = X * syw + Z * cyw;
+          const y2 = Y * cp + z1 * sp, z2 = z1 * cp - Y * sp;
+          const k = 7 / (7 + z2);
+          return [ox + x1 * scale * k, oy - y2 * scale * k, z2];
+        };
+        const X = (hr) => (hr - 11.5) / 11.5 * 1.25;
+        const Z = (wd) => (wd - 3) / 3 * 0.75;
+        const Yv = (v) => (v / S.max) * 0.7;
+        const g = S.grid;
+        // Floor outline and grid.
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = gridC;
+        for (let hr = 0; hr <= 24; hr += 6) {
+          const a = P(X(Math.min(hr, 23)), 0, Z(-0.5)), b = P(X(Math.min(hr, 23)), 0, Z(6.5));
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        }
+        for (let wd = -0.5; wd <= 6.5; wd += 7) {
+          const a = P(X(0), 0, Z(wd)), b = P(X(23), 0, Z(wd));
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        }
+        // Surface quads, far to near.
+        const quads = [];
+        const L = [0.35, 0.85, 0.4];
+        const ll = Math.hypot(...L);
+        for (let wd = 0; wd < 6; wd++) {
+          for (let hr = 0; hr < 23; hr++) {
+            const c = [[hr, wd], [hr + 1, wd], [hr + 1, wd + 1], [hr, wd + 1]];
+            const world = c.map(([a, b]) => [X(a), Yv(g[b][a]), Z(b)]);
+            const pr = world.map((p) => P(...p));
+            const ux = world[2][0] - world[0][0], uy = world[2][1] - world[0][1], uz = world[2][2] - world[0][2];
+            const vx = world[3][0] - world[1][0], vy = world[3][1] - world[1][1], vz = world[3][2] - world[1][2];
+            let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+            const nl = Math.hypot(nx, ny, nz) || 1;
+            if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+            const lit = 0.72 + 0.28 * Math.max(0, (nx * L[0] + ny * L[1] + nz * L[2]) / (nl * ll));
+            const avg = (g[wd][hr] + g[wd][hr + 1] + g[wd + 1][hr + 1] + g[wd + 1][hr]) / 4;
+            quads.push({ pr, depth: d3.mean(pr, (p) => p[2]), t: avg / S.max, lit });
+          }
+        }
+        quads.sort((a, b) => b.depth - a.depth);
+        for (const q of quads) {
+          const col = d3.rgb(d3.interpolateViridis(0.08 + 0.9 * q.t));
+          col.r *= q.lit; col.g *= q.lit; col.b *= q.lit;
+          ctx.fillStyle = col.formatRgb();
+          ctx.strokeStyle = col.darker(0.6).formatRgb();
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          q.pr.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        // Axis labels.
+        ctx.fillStyle = muted;
+        ctx.font = '11px ' + (cs.getPropertyValue('--font-anthropic-sans').trim() || 'system-ui, sans-serif');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const hr of [0, 6, 12, 18, 23]) {
+          const p = P(X(hr), 0, Z(-1.3));
+          ctx.fillText(String(hr).padStart(2, '0') + ':00', p[0], p[1]);
+        }
+        ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((n, wd) => {
+          const p = P(X(23) + 0.2, 0, Z(wd));
+          ctx.fillText(n, p[0], p[1]);
+        });
+        // Vertices for hover.
+        S.verts = [];
+        for (let wd = 0; wd < 7; wd++) {
+          for (let hr = 0; hr < 24; hr++) {
+            const p = P(X(hr), Yv(g[wd][hr]), Z(wd));
+            S.verts.push({ sx: p[0], sy: p[1], wd, hr, v: g[wd][hr] });
+          }
+        }
+        const hv = S.hover;
+        if (hv) {
+          const p = P(X(hv.hr), Yv(hv.v), Z(hv.wd));
+          hv.sx = p[0]; hv.sy = p[1];
+          ctx.beginPath();
+          ctx.arc(p[0], p[1], 5, 0, Math.PI * 2);
+          ctx.fillStyle = panel;
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = muted;
+          ctx.stroke();
+          const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+          const hh = (n) => String(n % 24).padStart(2, '0') + ':00';
+          const head = document.createElement('div');
+          head.className = 'sx-tip-date';
+          head.textContent = `${names[hv.wd]}, ${hh(hv.hr)} to ${hh(hv.hr + 1)} UTC`;
+          const body = document.createElement('div');
+          body.textContent = d3.format(',.0f')(hv.v) + ' sessions in the hour';
+          S.tip.replaceChildren(head, body);
+          S.tip.hidden = false;
+          const tw = S.tip.offsetWidth;
+          S.tip.style.left = Math.max(0, Math.min(w - tw, p[0] + 14)) + 'px';
+          S.tip.style.top = Math.max(0, p[1] - 60) + 'px';
+        } else {
+          S.tip.hidden = true;
+        }
+      };
+      return S;
+    },
+    update(el, S) {
+      const d = dash.data('hour_grid');
+      if (d.status === 'loading') { el.classList.add('dash-skeleton'); return; }
+      el.classList.remove('dash-skeleton');
+      if (d.status !== 'ok' || !d.data.length) {
+        S.grid = null;
+        const ctx = S.canvas.getContext('2d');
+        ctx.clearRect(0, 0, S.canvas.width, S.canvas.height);
+        S.peak.textContent = d.status === 'error' || d.status === 'missing' ? 'This part didn’t load. Sources says why.' : '—';
+        return;
+      }
+      const g = Array.from({ length: 7 }, () => new Array(24).fill(0));
+      let best = d.data[0];
+      for (const r of d.data) {
+        g[r.weekday_index][r.hour_utc] = r.sessions;
+        if (r.sessions > best.sessions) best = r;
+      }
+      S.grid = g;
+      S.max = best.sessions || 1;
+      const hh = (n) => String(n % 24).padStart(2, '0') + ':00';
+      const where = 'weekday=' + best.weekday + '&hour_utc=' + best.hour_utc;
+      const when = document.createElement('b');
+      when.dataset.source = 'hour_grid';
+      when.dataset.field = 'weekday';
+      when.dataset.where = where;
+      when.textContent = best.weekday;
+      const at = document.createElement('b');
+      at.dataset.source = 'hour_grid';
+      at.dataset.field = 'hour_utc';
+      at.dataset.where = where;
+      at.textContent = hh(best.hour_utc);
+      const n = document.createElement('b');
+      n.dataset.source = 'hour_grid';
+      n.dataset.field = 'sessions';
+      n.dataset.where = where;
+      n.textContent = d3.format(',.0f')(best.sessions);
+      S.peak.replaceChildren(document.createTextNode('Busiest hour: '), when, document.createTextNode(' at '), at,
+        document.createTextNode(' UTC, with '), n, document.createTextNode(' sessions in the hour.'));
+      S.canvas.setAttribute('aria-label', `3D surface of typical sessions per hour by weekday in UTC. Busiest hour: ${best.weekday} ${hh(best.hour_utc)} UTC with ${Math.round(best.sessions)} sessions.`);
+      S.render();
+      S.kick();
+    },
+    unmount(el, S) {
+      if (S.raf) cancelAnimationFrame(S.raf);
+      if (S.io) S.io.disconnect();
+    },
+  });
+</script>
