@@ -10,7 +10,7 @@ The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the
 
 ## What enforces each property
 
-- **Testable**: each claim ships with a test script that ends by printing one JSON line, `{"verdict": "survived" | "falsified", "scored_from": ..., ...metrics}`. It reads the csv from env `DATA`, seeds every random draw from env `SEED`, and, for time series, scores only rows at or after env `SCORE_FROM` (using earlier rows as history) and echoes it back.
+- **Testable**: each claim ships with a test script that ends by printing one JSON line, `{"verdict": "survived" | "falsified", "scored_from": ..., ...metrics}`. It reads the csv from env `DATA` and seeds every random draw from env `SEED`. For time series and panels, `DATA` holds the whole history and the test scores only rows at or after env `SCORE_FROM`, using earlier rows as history (to train a model, say), and echoes it back; this is how confirmation runs, retests and testers all work. For random splits, `DATA` is the holdout and env `TRAIN` points at the exploration rows, which a model may train on.
 - **Typed**: every claim is **descriptive** (what happened) or one of three **inferential** categories: **diagnostic** (why), **predictive** (what next) or **prescriptive** (what to do). Each category has kinds, and each kind has its own standard of evidence; `ledger.py types` lists them. The standard is the point: a driver correlation is only ever association, a causal claim needs a design and a placebo, and a prescriptive claim must rest on an established predictive or causal one, or it reports as `blocked`.
 - **Falsifiable**: before any confirmatory look, `register` the claim with its `--category` and `--kind`, its prediction, a concrete `--falsify-if` threshold and the `--decision` it informs, which freezes the test's hash. `run` executes it once on the sealed holdout, within the `--budget` of holdout looks set at `init`. A changed test is a new claim with a new id, and it spends budget.
 - **Traceable**: the ledger is hash-chained (`verify` checks it) and pins every data file's hash. `report` builds `analysis/INSIGHTS.md` from ledger entries alone, each figure citing its entry number.
@@ -42,7 +42,7 @@ Run the stage cycle below for **descriptive** (what happened), then **diagnostic
 ### Publish
 
 1. **Write the paper.** `ledger.py paper --title "..."` writes `analysis/PAPER.md` from the ledger alone, laid out like a peer-reviewed paper: abstract, data and variable roles, methods, results by stage (each claim with its pre-registration, gates, holdout result, replications, reviewer notes and fresh-data result), threats to validity, peer review, and reproduction steps. Every figure cites its ledger entry.
-2. **Referee (checkpoint).** Dispatch a **referee** goldfish with the referee brief below. Save its report to `analysis/reviews/referee-<n>.md` and record it with `ledger.py referee --report ... --agent ... --verdict ...`. Answer each point by registering new claims (`reopen` the stage first), by waiving, or by explaining in the reply to the user why not. Regenerate the paper after revisions.
+2. **Referee (checkpoint).** Dispatch a **referee** goldfish with the referee brief below. Save its report to `analysis/reviews/referee-<n>.md` and record it with `ledger.py referee --report ... --agent ... --verdict ...`. Answer each point by registering a revised claim under a new id (`reopen` the stage first; the original stays on the record), by waiving, or by explaining why not. Write the answers point by point to `analysis/reviews/response-<n>.md` and record it with `ledger.py respond --to <referee> --file ...`. Regenerate the paper and send it to a fresh referee; stop when one accepts, or when the user decides the open points are acceptable. Word every claim for the period it was tested on: the paper states each claim's scope, and a referee will hold the wording to it.
 3. **Audit and hand over.** Run `ledger.py audit`: it re-executes every frozen test and every replication against the sealed data and writes `analysis/AUDIT.md`. Hand the user `PAPER.md` and `AUDIT.md`. Lead your summary with the established findings and the decision each informs, then the refuted ones, then the threats to validity. Every number you quote comes from the paper.
 4. **Keep testing.** For time series, each new data release is a holdout nobody has seen. Pull it, then `ledger.py extend <new full file>`, `ledger.py retest all`, and `ledger.py paper`. A claim that **broke** or **revived** on fresh data goes back to its stage's reconcile step. This is the part to schedule when the user wants the analysis to run on its own.
 
@@ -89,6 +89,10 @@ Answer in six short lines:
 You are a goldfish: you know nothing about this analysis. Test one claim, independently.
 
 Data: <absolute path to analysis/holdout.csv> (columns: <column list>)
+<For time series and panels, instead: Data: <absolute path to analysis/confirm.csv>; score only
+rows with <order column> >= env SCORE_FROM (<first holdout key>); earlier rows are history you may
+use but must not score; echo "scored_from" in your JSON. For random splits, add: env TRAIN holds
+the exploration rows, which you may train on.>
 Claim: <claim>
 It is falsified if: <falsify-if>
 

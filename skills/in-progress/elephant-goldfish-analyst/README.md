@@ -14,9 +14,9 @@ An AI data-analysis workflow that turns a dataset into insights you can **test, 
 | `agents/openai.yaml` | Display metadata for Codex. |
 | `scripts/ledger.py` | The evidence ledger. Python 3 standard library only. Run `python3 scripts/ledger.py --help`. |
 | `scripts/test_ledger.py` | Test suite for the ledger (`python3 scripts/test_ledger.py`, about 6 seconds). |
-| `examples/` | Four worked runs on public data, each with its ledger, tests, goldfish scripts and generated `analysis/INSIGHTS.md`. |
+| `examples/` | Five worked runs on public data, each with its ledger, tests and goldfish scripts. `fuel-economy` is the complete flow: confirmed roles, four stages, paper, referee, revisions and audit. |
 
-The examples, from simplest to most complete: `wine` (the first run, sklearn's wine data), `tire-stores` (US tire-store sales from FRED), `canada-tire-stores` (Statistics Canada, NAICS 4413), and `coverage-other-provinces` (every feature: typed claims, critic review, coverage map, retest on data published after the seal).
+The examples, from simplest to most complete: `wine` (sklearn's wine data), `tire-stores` (US tire-store sales from FRED), `canada-tire-stores` (Statistics Canada, NAICS 4413), `coverage-other-provinces` (typed claims, coverage map, retest on data published after the seal), and `fuel-economy` (EPA vehicle data through the whole flow, including a referee who sent it back for major revisions).
 
 ## Install
 
@@ -34,11 +34,13 @@ Requirements: Python 3.9+ for the ledger. The test scripts an agent writes usual
 
 ## Use
 
-Ask the agent for an analysis it can stand behind, for example: "Use elephant-goldfish-analyst on `sales.csv`. I want to know what drives our fall demand by region." For time series it will split by date, explore the past and confirm on the future.
+Ask the agent for an analysis it can stand behind, for example: "Use elephant-goldfish-analyst on `sales.csv`. I want to know what drives fall demand by region." It then follows a fixed flow (see the flow chart, or `SKILL.md`):
 
-Before you start, write down what your team already knows in `analysis/KNOWN.md` (the agent asks for it). Claims that only restate it are treated as trivia.
-
-When new data is published, re-test everything already established:
+1. **Set up.** Write down what your team already knows (`analysis/KNOWN.md`), seal the data (`init`: a random split for cross-sectional data, by date for time series, `--panel` when there are many rows per period), and profile every column (`profile`).
+2. **Confirm roles (you).** The agent proposes the dependent variable, the independent variables, keys, time, segments, and the columns to exclude because they are recorded after the outcome or calculated from it. You confirm, and it records your answer (`schema`). Forecasts and rules can never use an excluded column.
+3. **Four stages, in order:** descriptive (what happened), diagnostic (why), predictive (what next), prescriptive (what to do). Each stage runs the same cycle (plan, explore, sharpen, critic review, register through the gates, run on the sealed data, blind replication, reconcile) and must be closed before the next opens.
+4. **Publish.** `paper` writes `analysis/PAPER.md`, a peer-review style write-up in which every number cites the ledger. A fresh referee agent reviews it; the agent answers with revised claims and a recorded response, then a new referee reviews again. `audit` re-executes everything and writes `analysis/AUDIT.md`.
+5. **Keep testing.** When new data is published:
 
 ```bash
 python3 scripts/ledger.py extend new_full_file.csv
@@ -49,8 +51,16 @@ python3 scripts/ledger.py retest all
 ```
 
 ```bash
-python3 scripts/ledger.py report
+python3 scripts/ledger.py paper
 ```
+
+## What an auditor gets
+
+| File | What it is |
+|---|---|
+| `analysis/PAPER.md` | The findings as a peer-reviewed paper: abstract, data and variable roles, methods, results by stage with each claim's scope, threats to validity, referee reports and responses, how to reproduce. |
+| `analysis/AUDIT.md` | Every recorded result re-executed from its frozen script against the sealed data: pass or fail, with the ledger's head hash. Re-run it with `python3 scripts/ledger.py audit`. |
+| `analysis/LEDGER.jsonl` | The append-only, hash-chained record of every claim, refusal, result, replication, review and amendment. |
 
 ## How it earns trust: the verification layers
 

@@ -260,6 +260,36 @@ def stage_closed(stage):
     return bool(ev) and ev[-1]["kind"] == "close"
 
 
+def holdout_window(m):
+    if not m.get("order_by"):
+        return None
+    col = m["columns"].index(m["order_by"])
+    with open(WS / "holdout.csv", newline="") as f:
+        keys = [r[col] for r in list(csv.reader(f))[1:]]
+    return min(keys), max(keys)
+
+
+def confirm_inputs(reg, m):
+    """(DATA path, extra env) for a confirmatory run of a registered claim.
+    history: explore + holdout in order, scored from the first holdout key (time series and panels).
+    train: holdout as DATA, explore offered as TRAIN (random splits). holdout: legacy, holdout only."""
+    mode = reg.get("data_mode", "holdout")
+    if mode == "history":
+        col = m["columns"].index(m["order_by"])
+        rows = []
+        for name in ("explore", "holdout"):
+            with open(WS / f"{name}.csv", newline="") as f:
+                rows += list(csv.reader(f))[1:]
+        with open(WS / "confirm.csv", "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(m["columns"])
+            w.writerows(sorted(rows, key=lambda r: r[col]))
+        return WS / "confirm.csv", {"SCORE_FROM": holdout_window(m)[0]}
+    if mode == "train":
+        return WS / "holdout.csv", {"TRAIN": str(WS / "explore.csv")}
+    return WS / "holdout.csv", {}
+
+
 def find(kind, hid):
     return [e for e in entries() if e["kind"] == kind and e.get("id") == hid]
 
@@ -396,6 +426,7 @@ def cmd_register(a):
     (WS / "mutants" / f"{a.id}.csv").unlink(missing_ok=True)
     append("register", id=a.id, claim=a.claim, prediction=a.prediction, falsify_if=a.falsify_if,
            category=a.category, insight_kind=a.kind, rests_on=parents, smoke=smoke,
+           data_mode="history" if ordered else "train",
            lint_warnings=warnings, mutants=mutants, no_mutant=a.no_mutant,
            decision=a.decision, min_fresh=a.min_fresh, test=str(a.test), test_sha=sha(a.test),
            review=str(a.review) if a.review else None, review_sha=sha(a.review) if a.review else None)
@@ -415,7 +446,8 @@ def cmd_run(a):
     used = len([e for e in entries() if e["kind"] == "run"])
     if m.get("holdout_budget") and used >= m["holdout_budget"]:
         die(f"holdout budget spent ({used}/{m['holdout_budget']}); wait for fresh data and use `retest`")
-    result, out_sha = execute(reg["test"], WS / "holdout.csv", m["seed"])
+    data, env = confirm_inputs(reg, m)
+    result, out_sha = execute(reg["test"], data, m["seed"], env)
     append("run", id=a.id, result=result, stdout_sha=out_sha)
     print(f"{a.id}: {result['verdict']}  {json.dumps(result)}")
 
@@ -428,7 +460,8 @@ def cmd_replay(a):
     reg, run = reg[0], run[0]
     if sha(reg["test"]) != reg["test_sha"]:
         die(f"{reg['test']} changed after registration")
-    result, out_sha = execute(reg["test"], WS / "holdout.csv", m["seed"])
+    data, env = confirm_inputs(reg, m)
+    result, out_sha = execute(reg["test"], data, m["seed"], env)
     same = out_sha == run["stdout_sha"]
     append("replay", id=a.id, identical=same, stdout_sha=out_sha)
     print(f"{a.id}: replay {'IDENTICAL' if same else 'DIVERGED'}")
@@ -439,9 +472,10 @@ def cmd_goldfish(a):
     run = find("run", a.id)
     if not run:
         die(f"{a.id} has not run")
-    result, out_sha = execute(a.test, WS / "holdout.csv", m["seed"])
-    agrees = result["verdict"] == run[0]["result"]["verdict"]
     reg = find("register", a.id)[0]
+    data, env = confirm_inputs(reg, m)
+    result, out_sha = execute(a.test, data, m["seed"], env)
+    agrees = result["verdict"] == run[0]["result"]["verdict"]
     g_err, g_warn = lint(a.test, reg.get("category") or "descriptive", False)
     for x in g_err + g_warn:
         print(f"goldfish lint: {x}")
@@ -683,6 +717,14 @@ def cmd_referee(a):
     print(f"referee {a.agent}: {a.verdict}")
 
 
+def cmd_respond(a):
+    ref = [e for e in entries() if e["kind"] == "referee" and e["agent"] == a.to]
+    if not ref:
+        die(f"no referee report from {a.to!r}")
+    append("response", to=a.to, file=str(a.file), file_sha=sha(a.file))
+    print(f"response to {a.to} recorded")
+
+
 def cmd_audit(a):
     """Read-only re-execution of every recorded result. Writes AUDIT.md; exit code 1 on any failure."""
     m = meta()
@@ -709,14 +751,16 @@ def cmd_audit(a):
         elif k == "run":
             reg = find("register", e["id"])[0]
             try:
-                _, out = execute(reg["test"], WS / "holdout.csv", m["seed"])
+                data, env = confirm_inputs(reg, m)
+                _, out = execute(reg["test"], data, m["seed"], env)
                 check(f"{e['id']} holdout result `#{e['seq']}` re-executed", out == e["stdout_sha"], "byte-identical" if out == e["stdout_sha"] else "output differs")
             except SystemExit as err:
                 check(f"{e['id']} holdout result `#{e['seq']}` re-executed", False, str(err)[-120:])
         elif k == "goldfish":
             check(f"{e['id']} replication script by {e['agent']} unchanged", Path(e["test"]).exists() and sha(e["test"]) == e["test_sha"], e["test"])
             try:
-                _, out = execute(e["test"], WS / "holdout.csv", m["seed"])
+                data, env = confirm_inputs(find("register", e["id"])[0], m)
+                _, out = execute(e["test"], data, m["seed"], env)
                 check(f"{e['id']} replication by {e['agent']} `#{e['seq']}`", out == e["stdout_sha"], "byte-identical" if out == e["stdout_sha"] else "output differs")
             except SystemExit as err:
                 check(f"{e['id']} replication by {e['agent']} `#{e['seq']}`", False, str(err)[-120:])
@@ -725,6 +769,8 @@ def cmd_audit(a):
             reg = find("register", e["id"])[0]
             _, out = execute(reg["test"], WS / "retest.csv", m["seed"], {"SCORE_FROM": ext[-1]["fresh_from"]})
             check(f"{e['id']} fresh-data result `#{e['seq']}` re-executed", out == e["stdout_sha"])
+        elif k == "response":
+            check(f"response to {e['to']}", Path(e["file"]).exists() and sha(e["file"]) == e["file_sha"], e["file"])
         elif k == "referee":
             check(f"referee report by {e['agent']}", Path(e["report"]).exists() and sha(e["report"]) == e["report_sha"], e["report"])
     text = ["# Audit", "", f"Ledger head `{head[:16]}`. Every recorded result re-executed from its frozen script and sealed data. "
@@ -824,6 +870,18 @@ def cmd_report(a):
     print(out.read_text())
 
 
+def scope(r, m):
+    w = holdout_window(m)
+    mode = r.get("data_mode", "holdout")
+    if w and mode == "history":
+        return f"scored on {m['order_by']} {w[0]} to {w[1]} (the sealed holdout), with earlier rows available as history"
+    if w:
+        return f"tested on {m['order_by']} {w[0]} to {w[1]} only (the sealed holdout, without earlier history)"
+    if mode == "train":
+        return f"tested on the {m['holdout_rows']} sealed holdout rows, with the {m['explore_rows']} exploration rows available for training"
+    return f"tested on the {m['holdout_rows']} sealed holdout rows"
+
+
 def _res(d):
     return ", ".join(f"{k}={v}" for k, v in d.items() if k not in ("verdict", "scored_from")) if d else ""
 
@@ -842,7 +900,9 @@ def cmd_paper(a):
          f"*Generated from the evidence ledger `{LEDGER}` (head `{head[:16]}`, {msg}, chain {'intact' if ok else 'BROKEN'}). "
          "Every number below cites the ledger entry it came from as `#n`. To check this paper, run "
          "`python3 ledger.py audit`, which re-executes every result.*", "", "## Abstract", ""]
-    L.append(f"We registered {len(regs)} claims before testing them on held-out data, across "
+    w = holdout_window(m)
+    L.append((f"All findings below are about {m['order_by']} {w[0]} to {w[1]}, the period sealed before analysis; earlier periods were used only to form hypotheses. " if w else "")
+             + f"We registered {len(regs)} claims before testing them on held-out data, across "
              f"{len({r.get('category') for r in regs})} insight categories. "
              f"{len(est)} were established, {sum(v.startswith('refuted') for v in st.values())} refuted, and "
              f"{sum(not (v.startswith('established') or v.startswith('refuted')) for v in st.values())} remain open (contested, blocked or untested).")
@@ -898,7 +958,8 @@ def cmd_paper(a):
             L += [f"#### {r['id']}: {r['claim']}", "",
                   f"- **Status: {st[r['id']]}.** Type {cat}/{r.get('insight_kind')}" + (f", rests on {', '.join(r['rests_on'])}" if r.get("rests_on") else "") + ".",
                   f"- Decision it informs: {r.get('decision')}.",
-                  f"- Pre-registered (`#{r['seq']}`): predicted {r['prediction']}; falsified if {r['falsify_if']}. Test `{r['test']}` sha `{r['test_sha'][:12]}`."]
+                  f"- Pre-registered (`#{r['seq']}`): predicted {r['prediction']}; falsified if {r['falsify_if']}. Test `{r['test']}` sha `{r['test_sha'][:12]}`.",
+                  f"- Scope: {scope(r, m)}."]
             gates = []
             if r.get("smoke"):
                 gates.append(f"smoke run on exploration data {r['smoke']['verdict']}")
@@ -916,7 +977,7 @@ def cmd_paper(a):
             for g in fish:
                 L.append(f"- Replication by {g['agent']} (`#{g['seq']}`): {g['result']['verdict']} ({'agrees' if g['agrees'] else 'DISAGREES'}); "
                          f"method: {g['result'].get('method', 'see script')}; {_res({k: v for k, v in g['result'].items() if k != 'method'})}."
-                         + (f" Reviewer note: {g['note']}" if g.get("note") else "") + (f" Narrowed: {g['narrowed']}." if g.get("narrowed") else ""))
+                         + (f" Tester's note: {g['note']}." if g.get("note") else "") + (f" Narrowed (the tester's words): {g['narrowed']}." if g.get("narrowed") else ""))
             for x in rt[-1:]:
                 L.append(f"- Fresh data (`#{x['seq']}`, {x['window']}): " + (f"pending ({x['pending']})." if "pending" in x else f"{x['result']['verdict']}, {_res(x['result'])}."))
             L.append("")
@@ -954,6 +1015,8 @@ def cmd_paper(a):
     L += [f"- Critic review before testing: `{p}`." for p in revs] or ["- No critic reviews recorded."]
     for e in [e for e in es if e["kind"] == "referee"]:
         L.append(f"- Referee report by {e['agent']} (`#{e['seq']}`): **{e['verdict']}**. `{e['report']}`.")
+        for x in [x for x in es if x["kind"] == "response" and x["to"] == e["agent"]]:
+            L.append(f"  - Response (`#{x['seq']}`): `{x['file']}`.")
     # Appendix
     L += ["", "## Appendix A. Reproduce", "", "```bash", "python3 ledger.py verify", "```", "", "```bash", "python3 ledger.py audit", "```", "",
           "`audit` re-runs every frozen test and every replication against the sealed data and checks each output is byte-identical to the "
@@ -1026,6 +1089,7 @@ def main():
     ro = s.add_parser("reopen"); ro.add_argument("stage", choices=STAGES); ro.add_argument("--reason", required=True)
     rf = s.add_parser("referee"); rf.add_argument("--report", required=True); rf.add_argument("--agent", required=True)
     rf.add_argument("--verdict", required=True, choices=["accept", "minor-revisions", "major-revisions", "reject"])
+    rs = s.add_parser("respond"); rs.add_argument("--to", required=True, help="the referee agent name"); rs.add_argument("--file", required=True)
     pa = s.add_parser("paper"); pa.add_argument("--title"); pa.add_argument("--notes", help="path to analyst notes to cite")
     s.add_parser("audit")
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")

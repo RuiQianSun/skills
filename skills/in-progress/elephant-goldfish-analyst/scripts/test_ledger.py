@@ -298,6 +298,23 @@ class LedgerTests(unittest.TestCase):
         self.assertIn("does not honour SCORE_FROM", self.ws.ok("retest", "I1"))
 
 
+class HistoryModeTests(unittest.TestCase):
+    def test_confirmatory_runs_get_history_and_score_only_the_holdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Workspace(tmp)
+            ws.init()
+            src = SEASONAL.replace('print(json.dumps({', 'print(json.dumps({"rows_seen": len(rows), ')
+            t = ws.script("H.py", src)
+            code, out = ws.register("H1", t, "--mutant", "shuffle-months")
+            self.assertEqual(code, 0, out)
+            res = json.loads(ws.ok("run", "H1").split("  ", 1)[1])
+            self.assertEqual(res["rows_seen"], 240)      # explore + holdout available as history
+            self.assertEqual(res["scored_from"], "2010-01")  # scoring starts at the holdout
+            self.assertEqual(res["years"], 10)
+            self.assertIn("IDENTICAL", ws.ok("replay", "H1"))
+            self.assertIn("0 failure(s)", ws.ok("audit"))
+
+
 class PanelTests(unittest.TestCase):
     def test_panel_allows_repeated_periods_and_splits_on_a_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
