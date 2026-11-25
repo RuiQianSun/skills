@@ -948,7 +948,8 @@ def cmd_paper(a):
     sc = schema()
     waives = [e for e in es if e["kind"] == "waive"]
     st = {r["id"]: status(r["id"]) for r in regs}
-    est = [r for r in regs if st[r["id"]].startswith("established")]
+    superseded = [r for r in regs if find("supersede", r["id"])]
+    est = [r for r in regs if st[r["id"]].startswith("established") and r not in superseded]
     L = [f"# {a.title or 'Findings: ' + Path(m['source']).name}", "",
          f"*Generated from the evidence ledger `{LEDGER}` (head `{head[:16]}`, {msg}, chain {'intact' if ok else 'BROKEN'}). "
          "Every number below cites the ledger entry it came from as `#n`. To check this paper, run "
@@ -957,8 +958,10 @@ def cmd_paper(a):
     L.append((f"All findings below are about {m['order_by']} {w[0]} to {w[1]}, the period sealed before analysis; earlier periods were used only to form hypotheses. " if w else "")
              + f"We registered {len(regs)} claims before testing them on held-out data, across "
              f"{len({r.get('category') for r in regs})} insight categories. "
-             f"{len(est)} were established, {sum(v.startswith('refuted') for v in st.values())} refuted, and "
-             f"{sum(not (v.startswith('established') or v.startswith('refuted')) for v in st.values())} remain open (contested, blocked or untested).")
+             f"{len(est)} stand as established, {sum(v.startswith('refuted') for v in st.values())} were refuted, "
+             f"{len(superseded)} were superseded by later tests, and "
+             + (lambda n: f"{n} {'is' if n == 1 else 'are'} open (contested, blocked, seed-sensitive or untested).")(
+                 sum(not (v.startswith('established') or v.startswith('refuted')) for v in st.values())))
     clean = [r for r in est if not caveats(r["id"]) and not any(g.get("narrowed") for g in find("goldfish", r["id"]))]
     qual = [r for r in est if r not in clean]
     if clean:
@@ -970,7 +973,10 @@ def cmd_paper(a):
             nar = [g["narrowed"] for g in find("goldfish", r["id"]) if g.get("narrowed")]
             q = caveats(r["id"]) + ([f"holds only as narrowed by its tester: {nar[-1]}"] if nar else [])
             L.append(f"- **{r['id']}** ({r.get('category')}/{r.get('insight_kind')}): {r['claim']} *{'; '.join(q)}.*")
-    other = [r for r in regs if r not in est]
+    if superseded:
+        L += ["", "Superseded by later tests (do not act on these as worded):", ""]
+        L += [f"- **{r['id']}** (passed its own test): {r['claim']} *{'; '.join(caveats(r['id']))}.*" for r in superseded]
+    other = [r for r in regs if r not in est and r not in superseded]
     if other:
         L += ["", "Not established:", ""]
         L += [f"- **{r['id']}**: {st[r['id']]}. {r['claim']}" + (f" *{'; '.join(caveats(r['id']))}.*" if caveats(r["id"]) else "") for r in other]

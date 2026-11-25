@@ -1,10 +1,10 @@
 # Audit
 
-Ledger head `f37362f6bac9fb6d`. Every recorded result re-executed from its frozen script and sealed data. 0 failure(s).
+Ledger head `75b42640cd1ee6be`. Every recorded result re-executed from its frozen script and sealed data. 0 failure(s).
 
 | check | result | detail |
 |---|---|---|
-| ledger hash chain | pass | 73 entries |
+| ledger hash chain | pass | 87 entries |
 | explore.csv hash | pass |  |
 | holdout.csv hash | pass |  |
 | D1 test frozen | pass | analysis/tests/D1.py |
@@ -59,3 +59,10 @@ Ledger head `f37362f6bac9fb6d`. Every recorded result re-executed from its froze
 | P1r replication script by goldfish-P1r-sonnet unchanged | pass | analysis/goldfish/P1r.py |
 | P1r replication by goldfish-P1r-sonnet `#61` | pass | byte-identical |
 | response to referee-1 | pass | analysis/reviews/response-1.md |
+| referee report by referee-2 | pass | analysis/reviews/referee-2.md |
+| F1h test frozen | pass | analysis/tests/F1.py |
+| F1h critic review | pass | analysis/reviews/referee-2.md |
+| F1h holdout result `#76` re-executed | pass | byte-identical |
+| F1h replication script by goldfish-F1h-sonnet unchanged | pass | analysis/goldfish/F1h.py |
+| F1h replication by goldfish-F1h-sonnet `#84` | pass | byte-identical |
+| response to referee-2 | pass | analysis/reviews/response-2.md |
