@@ -226,14 +226,15 @@ def month_key(k):
     return None
 
 
-def audit(header, body, order_by):
+def audit(header, body, order_by, panel=False):
     """Data contract checked before anything is sealed: gaps, duplicates, empty cells."""
     report = {"empty_cells": {h: sum(1 for r in body if r[i].strip() in ("", ".", "NA", "nan")) for i, h in enumerate(header)}}
     report["empty_cells"] = {k: v for k, v in report["empty_cells"].items() if v}
     if order_by:
         col = header.index(order_by)
         keys = [r[col] for r in body]
-        report["duplicate_keys"] = sorted({k for k in keys if keys.count(k) > 1})
+        from collections import Counter
+        report["duplicate_keys"] = [] if panel else sorted(k for k, n in Counter(keys).items() if n > 1)
         mk = sorted({month_key(k) for k in keys} - {None})
         if mk and len(mk) == len(set(keys)):
             have = set(mk)
@@ -282,7 +283,9 @@ def cmd_init(a):
     with open(a.data, newline="") as f:
         rows = list(csv.reader(f))
     header, body = rows[0], rows[1:]
-    rep = audit(header, body, a.order_by)
+    rep = audit(header, body, a.order_by, a.panel)
+    if a.panel and not a.order_by:
+        die("--panel needs --order-by")
     if audit_problems(rep) and not a.allow_gaps:
         WS.rmdir() if not any(WS.iterdir()) else None
         die(f"data audit failed, nothing sealed: {json.dumps(audit_problems(rep))}\n"
@@ -295,6 +298,10 @@ def cmd_init(a):
     else:
         random.Random(a.seed).shuffle(idx)
     cut = int(len(idx) * a.explore_fraction)
+    if a.panel:  # many rows per period: move the cut to a period boundary so no period straddles the split
+        col = header.index(a.order_by)
+        while 0 < cut < len(idx) and body[idx[cut]][col] == body[idx[cut - 1]][col]:
+            cut += 1
     for name, part in (("explore", idx[:cut]), ("holdout", idx[cut:])):
         with open(WS / f"{name}.csv", "w", newline="") as f:
             w = csv.writer(f)
@@ -304,7 +311,7 @@ def cmd_init(a):
                columns=header, split=f"ordered by {a.order_by}" if a.order_by else "random",
                explore_until=body[idx[cut - 1]][header.index(a.order_by)] if a.order_by else None, explore_rows=cut, holdout_rows=len(body) - cut,
                explore_sha=sha(WS / "explore.csv"), holdout_sha=sha(WS / "holdout.csv"),
-               order_by=a.order_by, audit=rep, holdout_budget=a.budget, staged=not a.unstaged)
+               order_by=a.order_by, panel=a.panel, audit=rep, holdout_budget=a.budget, staged=not a.unstaged)
     print(f"workspace {WS}: explore={cut} rows, holdout={len(body) - cut} rows, seed={a.seed}")
     print(f"elephant: explore on {WS}/explore.csv only. holdout is sealed for registered tests.")
     if rep["empty_cells"]:
@@ -341,16 +348,20 @@ def cmd_register(a):
         if stage_closed(a.category):
             die(f"the {a.category} stage is closed; `reopen {a.category} --reason ...` to amend it (recorded)")
     excluded = sc["roles"].get("exclude", []) if sc else []
+
+    def refuse(gate, msg):  # refused attempts stay on the record: they are part of the multiple-comparisons count
+        append("refused", id=a.id, gate=gate, claim=a.claim, category=a.category, test=str(a.test), test_sha=sha(a.test), reason=msg[:500])
+        die(msg)
     # 1. static: lint the test before anything runs
     errors, warnings = lint(a.test, a.category, ordered, excluded)
     for w in warnings:
         print(f"lint warning {w}")
     if errors:
-        die("lint failed, nothing registered:\n  " + "\n  ".join(errors))
+        refuse("lint", "lint failed, nothing registered:\n  " + "\n  ".join(errors))
     # 2. smoke: the test must run on explore data and honour the output contract
     smoke, err = try_execute(a.test, WS / "explore.csv", m["seed"])
     if smoke is None:
-        die(f"smoke run on explore.csv failed, nothing registered:\n{err}")
+        refuse("smoke", f"smoke run on explore.csv failed, nothing registered:\n{err}")
     if ordered and "scored_from" not in smoke:
         die('smoke run: JSON lacks "scored_from"')
     if smoke["verdict"] != "survived":
@@ -380,7 +391,7 @@ def cmd_register(a):
         print(f"mutant {spec}: killed {killed}/5 {verdicts}"
               + ("" if informative else " (uninformative: the claim already fails on unmutated explore data)"))
         if informative and killed < 4:
-            die(f"the test has no teeth against {spec}: it falsified only {killed} of 5 mutants. "
+            refuse("mutation", f"the test has no teeth against {spec}: it falsified only {killed} of 5 mutants. "
                 "Tighten the test or the threshold, or pick a mutant that really destroys what the claim asserts")
     (WS / "mutants" / f"{a.id}.csv").unlink(missing_ok=True)
     append("register", id=a.id, claim=a.claim, prediction=a.prediction, falsify_if=a.falsify_if,
@@ -460,7 +471,7 @@ def cmd_extend(a):
     fresh = sorted((r for r in body if r[col] > last), key=lambda r: r[col])
     if not fresh:
         die(f"no rows after {last}; nothing to extend")
-    rep = audit(header, fresh, m["order_by"])
+    rep = audit(header, fresh, m["order_by"], m.get("panel", False))
     if audit_problems(rep):
         die(f"fresh rows fail the audit: {json.dumps(audit_problems(rep))}")
     with open(WS / "fresh.csv", "w", newline="") as f:
@@ -587,11 +598,11 @@ def cmd_profile(a):
             nums = [float(v) for v in vals]
             rng = f"{min(nums):g} to {max(nums):g}"
         else:
-            top = sorted(set(vals), key=vals.count, reverse=True)[:3]
-            rng = ", ".join(top)
+            from collections import Counter
+            rng = ", ".join(v for v, _ in Counter(vals).most_common(3))
         if h == m.get("order_by"):
             role = "time"
-        elif distinct == len(body) and not numeric:
+        elif distinct == len(body) and (not numeric or all(float(v).is_integer() for v in vals)):
             role = "key"
         elif not numeric and distinct <= 30:
             role = "segment"
@@ -867,7 +878,8 @@ def cmd_paper(a):
           "replicated by independent agents who saw only the claim and the holdout and wrote their own method. Prescriptive claims count "
           "only if the claim they rest on is established.", "",
           f"- Holdout looks used: {len(runs)}" + (f" of a budget of {m['holdout_budget']}" if m.get("holdout_budget") else "") + ".",
-          f"- Claims registered: {len(regs)} (the multiple-comparisons count; thresholds were set per claim at registration).",
+          f"- Claims registered: {len(regs)}; attempts refused by the gates: {len([e for e in es if e['kind'] == 'refused'])} "
+          "(together, the multiple-comparisons count; thresholds were set per claim at registration).",
           f"- Replicating agents: {', '.join(sorted({g['agent'] for g in es if g['kind'] == 'goldfish'})) or 'none'}."]
     closes = [e for e in es if e["kind"] in ("close", "reopen")]
     if closes:
@@ -929,6 +941,8 @@ def cmd_paper(a):
             threats.append(f"{r['id']} was not reviewed by a critic before registration.")
         if not find("goldfish", r["id"]):
             threats.append(f"{r['id']} has no independent replication.")
+    for e in [e for e in es if e["kind"] == "refused"]:
+        threats.append(f"Refused at registration (`#{e['seq']}`, {e['gate']} gate): {e['id']}, \"{e['claim']}\". {e['reason'].splitlines()[0]}")
     for e in [e for e in es if e["kind"] == "reopen"]:
         threats.append(f"The {e['stage']} stage was reopened (`#{e['seq']}`): {e['reason']}.")
     if a.notes and Path(a.notes).exists():
@@ -977,6 +991,7 @@ def main():
     i.add_argument("--order-by", help="column to sort by for a time split (explore earliest rows, hold out the latest)")
     i.add_argument("--budget", type=int, help="max confirmatory looks at the holdout across all claims")
     i.add_argument("--allow-gaps", action="store_true", help="seal despite gaps or duplicate keys (recorded)")
+    i.add_argument("--panel", action="store_true", help="many rows per --order-by value (e.g. models per year); split on a period boundary")
     i.add_argument("--unstaged", action="store_true", help="skip the schema and stage gates (not for audited work)")
     r = s.add_parser("register"); r.add_argument("id"); r.add_argument("--claim", required=True)
     r.add_argument("--prediction", required=True); r.add_argument("--falsify-if", required=True)

@@ -1,0 +1,4 @@
+# Critic review: diagnostic stage (drafts before revision)
+
+- G1 (within-class displacement vs MPG, rho <= -0.5 in 80% of classes): near-trivial given known facts, and hybrids (small engines, high MPG) inflate it; -0.5 is moderate, not strong; association only. Revised: non-hybrids only, rho <= -0.6 in at least 80% of classes with 50+ configurations, worded as "moves with".
+- G2 (endpoint shift-share on average MPG): MPG averages wrongly (fuel use averages in gallons per mile), the interaction term was ignored, endpoints are fragile, and configuration counts are not the market. Revised: fuel consumption in gallons per 100 miles, symmetric (midpoint) shift-share with no interaction term, within-class component must exceed the mix component in size, cut consumption by at least 0.1 gal/100 mi first to last year, and point the same way in at least 4 of 5 adjacent-year pairs. The paper words the mix as configuration mix, not sales mix.

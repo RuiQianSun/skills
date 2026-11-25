@@ -140,6 +140,8 @@ class LedgerTests(unittest.TestCase):
         code, out = self.ws.register("T1", t, "--mutant", "shuffle-months")
         self.assertNotEqual(code, 0)
         self.assertIn("no teeth", out)
+        kinds = [json.loads(l)["kind"] for l in (self.ws.dir / "analysis" / "LEDGER.jsonl").read_text().splitlines()]
+        self.assertEqual(kinds[-1], "refused")  # the abandoned attempt stays on the record
 
     def test_real_seasonality_test_kills_its_mutants(self):
         self.ws.init()
@@ -294,6 +296,20 @@ class LedgerTests(unittest.TestCase):
         self.ws.csv("plus3.csv", make_rows(years=23))
         self.ws.ok("extend", "plus3.csv")
         self.assertIn("does not honour SCORE_FROM", self.ws.ok("retest", "I1"))
+
+
+class PanelTests(unittest.TestCase):
+    def test_panel_allows_repeated_periods_and_splits_on_a_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Workspace(tmp)
+            rows = [[str(2000 + i // 7), f"{i}", f"{i % 3}"] for i in range(70)]  # 7 rows per year
+            ws.csv("data.csv", rows)
+            code, out = ws.run("init", "data.csv", "--order-by", "month", "--unstaged")
+            self.assertIn("duplicate_keys", out)
+            ws.ok("init", "data.csv", "--order-by", "month", "--panel", "--unstaged")
+            ex = (ws.dir / "analysis" / "explore.csv").read_text().splitlines()[1:]
+            ho = (ws.dir / "analysis" / "holdout.csv").read_text().splitlines()[1:]
+            self.assertFalse({r.split(",")[0] for r in ex} & {r.split(",")[0] for r in ho})
 
 
 class StagedFlowTests(unittest.TestCase):
