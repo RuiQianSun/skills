@@ -799,7 +799,9 @@ def cmd_audit(a):
         if k == "register":
             check(f"{e['id']} test frozen", Path(e["test"]).exists() and sha(e["test"]) == e["test_sha"], e["test"])
             if e.get("review"):
-                check(f"{e['id']} critic review", Path(e["review"]).exists() and sha(e["review"]) == e["review_sha"], e["review"])
+                is_ref = e["review"] in {x["report"] for x in entries() if x["kind"] == "referee"}
+                check(f"{e['id']} {'referee report used as review' if is_ref else 'critic review'}",
+                      Path(e["review"]).exists() and sha(e["review"]) == e["review_sha"], e["review"])
         elif k == "run":
             reg = find("register", e["id"])[0]
             try:

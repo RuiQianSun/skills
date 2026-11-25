@@ -1,10 +1,10 @@
 # Audit
 
-Ledger head `75b42640cd1ee6be`. Every recorded result re-executed from its frozen script and sealed data. 0 failure(s).
+Ledger head `e8055e44389087cb`. Every recorded result re-executed from its frozen script and sealed data. 0 failure(s).
 
 | check | result | detail |
 |---|---|---|
-| ledger hash chain | pass | 87 entries |
+| ledger hash chain | pass | 89 entries |
 | explore.csv hash | pass |  |
 | holdout.csv hash | pass |  |
 | D1 test frozen | pass | analysis/tests/D1.py |
@@ -44,13 +44,13 @@ Ledger head `75b42640cd1ee6be`. Every recorded result re-executed from its froze
 | P1b replication by goldfish-P1b `#42` | pass | byte-identical |
 | referee report by referee-1 | pass | analysis/reviews/referee-1.md |
 | G2r test frozen | pass | analysis/tests/G2r.py |
-| G2r critic review | pass | analysis/reviews/referee-1.md |
+| G2r referee report used as review | pass | analysis/reviews/referee-1.md |
 | G2r holdout result `#46` re-executed | pass | byte-identical |
 | F1r test frozen | pass | analysis/tests/F1r.py |
-| F1r critic review | pass | analysis/reviews/referee-1.md |
+| F1r referee report used as review | pass | analysis/reviews/referee-1.md |
 | F1r holdout result `#51` re-executed | pass | byte-identical |
 | P1r test frozen | pass | analysis/tests/P1r.py |
-| P1r critic review | pass | analysis/reviews/referee-1.md |
+| P1r referee report used as review | pass | analysis/reviews/referee-1.md |
 | P1r holdout result `#56` re-executed | pass | byte-identical |
 | G2r replication script by goldfish-G2r-sonnet unchanged | pass | analysis/goldfish/G2r.py |
 | G2r replication by goldfish-G2r-sonnet `#59` | pass | byte-identical |
@@ -61,8 +61,10 @@ Ledger head `75b42640cd1ee6be`. Every recorded result re-executed from its froze
 | response to referee-1 | pass | analysis/reviews/response-1.md |
 | referee report by referee-2 | pass | analysis/reviews/referee-2.md |
 | F1h test frozen | pass | analysis/tests/F1.py |
-| F1h critic review | pass | analysis/reviews/referee-2.md |
+| F1h referee report used as review | pass | analysis/reviews/referee-2.md |
 | F1h holdout result `#76` re-executed | pass | byte-identical |
 | F1h replication script by goldfish-F1h-sonnet unchanged | pass | analysis/goldfish/F1h.py |
 | F1h replication by goldfish-F1h-sonnet `#84` | pass | byte-identical |
 | response to referee-2 | pass | analysis/reviews/response-2.md |
+| referee report by referee-3 | pass | analysis/reviews/referee-3.md |
+| response to referee-3 | pass | analysis/reviews/response-3.md |
