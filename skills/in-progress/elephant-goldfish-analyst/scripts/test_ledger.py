@@ -418,6 +418,11 @@ class StagedFlowTests(unittest.TestCase):
         paper = (self.ws.dir / "analysis" / "PAPER.md").read_text()
         for part in ("## Abstract", "### 1.1 Variables", "## 2. Methods", "#### S1", "## 4. Threats to validity", "read peak as the annual maximum"):
             self.assertIn(part, paper)
+        self.ws.ok("withdraw", "S1", "--reason", "the decision assumed sales, not configurations")
+        self.ws.ok("paper")
+        paper = (self.ws.dir / "analysis" / "PAPER.md").read_text()
+        self.assertIn("Established only with qualifications", paper)
+        self.assertIn("decision withdrawn: the decision assumed sales", paper)
         out = self.ws.ok("audit")
         self.assertIn("0 failure(s)", out)
         fish.write_text(fish.read_text().replace(">= 0.8", ">= 0.1"))  # a replication edited after the fact

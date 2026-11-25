@@ -720,6 +720,34 @@ def cmd_referee(a):
     print(f"referee {a.agent}: {a.verdict}")
 
 
+def cmd_supersede(a):
+    for x in (a.id, a.by):
+        if not find("register", x):
+            die(f"{x} is not registered")
+    append("supersede", id=a.id, by=a.by, reason=a.reason)
+    print(f"{a.id} superseded by {a.by}")
+
+
+def cmd_withdraw(a):
+    if not find("register", a.id):
+        die(f"{a.id} is not registered")
+    append("withdraw", id=a.id, reason=a.reason)
+    print(f"{a.id}: decision withdrawn")
+
+
+def caveats(hid):
+    """Plain-language qualifiers the abstract must carry for a claim."""
+    out = []
+    for e in find("supersede", hid):
+        out.append(f"superseded by {e['by']} ({status(e['by'])}): {e['reason']}")
+    for e in find("withdraw", hid):
+        out.append(f"decision withdrawn: {e['reason']}")
+    sd = find("seeds", hid)
+    if sd and not sd[-1]["stable"]:
+        out.append("verdict flips with the random seed")
+    return out
+
+
 def cmd_respond(a):
     ref = [e for e in entries() if e["kind"] == "referee" and e["agent"] == a.to]
     if not ref:
@@ -931,11 +959,21 @@ def cmd_paper(a):
              f"{len({r.get('category') for r in regs})} insight categories. "
              f"{len(est)} were established, {sum(v.startswith('refuted') for v in st.values())} refuted, and "
              f"{sum(not (v.startswith('established') or v.startswith('refuted')) for v in st.values())} remain open (contested, blocked or untested).")
-    if est:
-        L += ["", "Established findings:", ""]
-        for r in est:
+    clean = [r for r in est if not caveats(r["id"]) and not any(g.get("narrowed") for g in find("goldfish", r["id"]))]
+    qual = [r for r in est if r not in clean]
+    if clean:
+        L += ["", "Established without qualification:", ""]
+        L += [f"- **{r['id']}** ({r.get('category')}/{r.get('insight_kind')}): {r['claim']}" for r in clean]
+    if qual:
+        L += ["", "Established only with qualifications (read these before acting):", ""]
+        for r in qual:
             nar = [g["narrowed"] for g in find("goldfish", r["id"]) if g.get("narrowed")]
-            L.append(f"- **{r['id']}** ({r.get('category')}/{r.get('insight_kind')}): {r['claim']}" + (f" *Narrowed to: {nar[-1]}.*" if nar else ""))
+            q = caveats(r["id"]) + ([f"holds only as narrowed by its tester: {nar[-1]}"] if nar else [])
+            L.append(f"- **{r['id']}** ({r.get('category')}/{r.get('insight_kind')}): {r['claim']} *{'; '.join(q)}.*")
+    other = [r for r in regs if r not in est]
+    if other:
+        L += ["", "Not established:", ""]
+        L += [f"- **{r['id']}**: {st[r['id']]}. {r['claim']}" + (f" *{'; '.join(caveats(r['id']))}.*" if caveats(r["id"]) else "") for r in other]
     # 1 Data
     L += ["", "## 1. Data", "",
           f"- Source: `{m['source']}`, sha256 `{m['source_sha'][:16]}`, {m['rows']} rows, {len(m['columns'])} columns.",
@@ -966,6 +1004,10 @@ def cmd_paper(a):
           f"- Claims registered: {len(regs)}; attempts refused by the gates: {len([e for e in es if e['kind'] == 'refused'])} "
           "(together, the multiple-comparisons count; thresholds were set per claim at registration).",
           f"- Replicating agents: {', '.join(sorted({g['agent'] for g in es if g['kind'] == 'goldfish'})) or 'none'}."]
+    seeds_e = {e["id"]: e for e in es if e["kind"] == "seeds"}
+    if seeds_e:
+        bad = [k for k, v in seeds_e.items() if not v["stable"]]
+        L.append(f"- Seed check: {len(seeds_e)} claims rerun under several seeds; " + (f"unstable: {', '.join(bad)}." if bad else "all stable."))
     closes = [e for e in es if e["kind"] in ("close", "reopen")]
     if closes:
         L.append("- Stage log: " + "; ".join(f"`#{c['seq']}` {c['kind']} {c['stage']}" + (f" ({c.get('reason')})" if c['kind'] == 'reopen' else "") for c in closes) + ".")
@@ -985,6 +1027,15 @@ def cmd_paper(a):
                   f"- Decision it informs: {r.get('decision')}.",
                   f"- Pre-registered (`#{r['seq']}`): predicted {r['prediction']}; falsified if {r['falsify_if']}. Test `{r['test']}` sha `{r['test_sha'][:12]}`.",
                   f"- Scope: {scope(r, m)}."]
+            for c in caveats(r["id"]):
+                L.append(f"- **Note:** {c}.")
+            if r.get("review"):
+                refs = {e["report"] for e in es if e["kind"] == "referee"}
+                L.append(f"- Reviewed before registration by " + ("a referee report (no pre-test critic saw this exact wording)" if r["review"] in refs else "the critic") + f": `{r['review']}`.")
+            sd = find("seeds", r["id"])
+            if sd:
+                x = sd[-1]
+                L.append(f"- Seed check (`#{x['seq']}`, seeds {x['seeds']}): {'stable' if x['stable'] else 'UNSTABLE'}; " + "; ".join(f"{k}: {'/'.join(v)}" for k, v in x["verdicts"].items()) + ".")
             gates = []
             if r.get("smoke"):
                 gates.append(f"smoke run on exploration data {r['smoke']['verdict']}")
@@ -1031,12 +1082,17 @@ def cmd_paper(a):
         threats.append(f"Refused at registration (`#{e['seq']}`, {e['gate']} gate): {e['id']}, \"{e['claim']}\". {e['reason'].splitlines()[0]}")
     for e in [e for e in es if e["kind"] == "reopen"]:
         threats.append(f"The {e['stage']} stage was reopened (`#{e['seq']}`): {e['reason']}.")
+    for r in regs:
+        for g in find("goldfish", r["id"]):
+            if g.get("narrowed") and st[r["id"]].startswith("established"):
+                threats.append(f"{r['id']} holds only in its tester's narrower reading (`#{g['seq']}`): {g['narrowed']}")
     if a.notes and Path(a.notes).exists():
-        threats.append(f"Analyst notes: see `{a.notes}`.")
+        threats += [l.lstrip("- ").strip() for l in Path(a.notes).read_text().splitlines() if l.startswith("- ")]
     L += [f"- {t}" for t in threats] or ["- None recorded."]
     # 5 Review
     L += ["", "## 5. Peer review", ""]
-    revs = sorted({r["review"] for r in regs if r.get("review")})
+    refs = {e["report"] for e in es if e["kind"] == "referee"}
+    revs = sorted({r["review"] for r in regs if r.get("review") and r["review"] not in refs})
     L += [f"- Critic review before testing: `{p}`." for p in revs] or ["- No critic reviews recorded."]
     for e in [e for e in es if e["kind"] == "referee"]:
         L.append(f"- Referee report by {e['agent']} (`#{e['seq']}`): **{e['verdict']}**. `{e['report']}`.")
@@ -1117,6 +1173,8 @@ def main():
     rs = s.add_parser("respond"); rs.add_argument("--to", required=True, help="the referee agent name"); rs.add_argument("--file", required=True)
     pa = s.add_parser("paper"); pa.add_argument("--title"); pa.add_argument("--notes", help="path to analyst notes to cite")
     s.add_parser("audit")
+    su = s.add_parser("supersede"); su.add_argument("id"); su.add_argument("--by", required=True); su.add_argument("--reason", required=True)
+    wd = s.add_parser("withdraw"); wd.add_argument("id"); wd.add_argument("--reason", required=True)
     se = s.add_parser("seeds"); se.add_argument("id", help="a claim id, or `all`"); se.add_argument("--n", type=int, default=3, help="seeds to try besides seed 1")
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
