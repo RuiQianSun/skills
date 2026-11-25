@@ -82,9 +82,9 @@ class Workspace:
         assert code == 0, f"ledger {' '.join(map(str, args))} failed:\n{out}"
         return out
 
-    def init(self, rows=None, *extra):
+    def init(self, rows=None, *extra, staged=False):
         self.csv("data.csv", rows or make_rows())
-        return self.ok("init", "data.csv", "--order-by", "month", *extra)
+        return self.ok("init", "data.csv", "--order-by", "month", *extra, *([] if staged else ["--unstaged"]))
 
     def register(self, hid, test, *extra, category="descriptive", kind="seasonality"):
         return self.run("register", hid, "--category", category, "--kind", kind, "--claim", "c",
@@ -294,6 +294,84 @@ class LedgerTests(unittest.TestCase):
         self.ws.csv("plus3.csv", make_rows(years=23))
         self.ws.ok("extend", "plus3.csv")
         self.assertIn("does not honour SCORE_FROM", self.ws.ok("retest", "I1"))
+
+
+class StagedFlowTests(unittest.TestCase):
+    """The audited workflow: confirmed roles, stages in order, paper, audit."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = Workspace(self.tmp.name)
+        self.ws.init(staged=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def schema(self, *extra):
+        return self.ws.ok("schema", "--time", "month", "--target", "a", "--feature", "b", "--confirmed-by", "test", *extra)
+
+    def claim(self, hid, category, kind, src=SEASONAL, *extra):
+        t = self.ws.script(f"{hid}.py", src)
+        return self.ws.register(hid, t, "--mutant", "shuffle-months", *extra, category=category, kind=kind)
+
+    def test_register_needs_a_confirmed_schema(self):
+        code, out = self.claim("S1", "descriptive", "seasonality")
+        self.assertIn("no confirmed schema", out)
+
+    def test_schema_needs_a_target_and_every_column(self):
+        code, out = self.ws.run("schema", "--time", "month", "--feature", "a,b", "--confirmed-by", "x")
+        self.assertIn("--target", out)
+        code, out = self.ws.run("schema", "--time", "month", "--target", "a", "--confirmed-by", "x")
+        self.assertIn("unassigned", out)
+        code, out = self.ws.run("schema", "--time", "month", "--target", "a", "--feature", "a,b", "--confirmed-by", "x")
+        self.assertIn("conflicting roles", out)
+
+    def test_stages_run_in_order(self):
+        self.schema()
+        code, out = self.claim("G1", "diagnostic", "driver")
+        self.assertIn("close descriptive", out)
+        code, out = self.claim("S1", "descriptive", "seasonality")
+        self.assertEqual(code, 0, out)
+        code, out = self.ws.run("close", "descriptive", "--note", "x")
+        self.assertIn("run and replay", out)
+        self.ws.ok("run", "S1")
+        self.ws.ok("replay", "S1")
+        code, out = self.ws.run("close", "descriptive")
+        self.assertIn("neither tested nor waived", out)
+        self.ws.ok("close", "descriptive", "--note", "only seasonality matters here")
+        code, out = self.claim("S2", "descriptive", "trend")
+        self.assertIn("closed", out)
+        self.ws.ok("reopen", "descriptive", "--reason", "referee asked for a trend claim")
+        code, out = self.claim("S2", "descriptive", "trend")
+        self.assertEqual(code, 0, out)
+
+    def test_leaky_column_blocks_forecasts(self):
+        self.ws.ok("schema", "--time", "month", "--target", "a", "--exclude", "b:recorded after the outcome", "--confirmed-by", "test")
+        self.ws.ok("waive", "descriptive", "--reason", "x")
+        self.ws.ok("close", "descriptive")
+        self.ws.ok("waive", "diagnostic", "--reason", "x")
+        self.ws.ok("close", "diagnostic")
+        leaky = SEASONAL.replace('if r["a"]', 'if r["a"] and r["b"]')
+        code, out = self.claim("F1", "predictive", "timing", leaky)
+        self.assertIn("excluded-column", out)
+
+    def test_paper_and_audit(self):
+        self.schema()
+        self.claim("S1", "descriptive", "seasonality")
+        self.ws.ok("run", "S1")
+        self.ws.ok("replay", "S1")
+        fish = self.ws.script("fish.py", SEASONAL)
+        self.ws.ok("goldfish", "S1", "--test", fish, "--agent", "g1", "--note", "read peak as the annual maximum")
+        self.ws.ok("paper")
+        paper = (self.ws.dir / "analysis" / "PAPER.md").read_text()
+        for part in ("## Abstract", "### 1.1 Variables", "## 2. Methods", "#### S1", "## 4. Threats to validity", "read peak as the annual maximum"):
+            self.assertIn(part, paper)
+        out = self.ws.ok("audit")
+        self.assertIn("0 failure(s)", out)
+        fish.write_text(fish.read_text().replace(">= 0.8", ">= 0.1"))  # a replication edited after the fact
+        code, out = self.ws.run("audit")
+        self.assertNotEqual(code, 0)
+        self.assertIn("FAIL", out)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,15 @@ TYPES = {
 }
 RESTS_ON = {"prescriptive": ("predictive", "diagnostic")}
 FORWARD = ("predictive", "prescriptive")  # categories that must never peek at later rows
+STAGES = list(TYPES)  # descriptive -> diagnostic -> predictive -> prescriptive, closed in order
+ROLES = {
+    "target": "dependent variable: the outcome the analysis explains or predicts",
+    "feature": "independent variable: a candidate explanation or predictor",
+    "time": "the order key for time series",
+    "key": "an identifier; never a predictor",
+    "segment": "a grouping used to slice results (can also be a feature)",
+    "exclude": "unusable or leaky: recorded after the outcome, a duplicate of the target, or junk",
+}
 
 # Static checks on a test script: (code, regex, applies to, message). "error" blocks registration.
 LINT = [
@@ -67,7 +76,7 @@ LINT_WARN = [
 ]
 
 
-def lint(path, category, ordered):
+def lint(path, category, ordered, excluded=()):
     """Return (errors, warnings) as lists of 'code: message (line n)'."""
     import re
     src = Path(path).read_text()
@@ -84,6 +93,12 @@ def lint(path, category, ordered):
         return hits
 
     errors, warnings = scan(LINT), scan(LINT_WARN)
+    for col in excluded:  # a column the confirmed schema marks unusable or leaky
+        rx = r"""(['"])""" + re.escape(col) + r"""\1|\.""" + re.escape(col) + r"\b"
+        for n, line in enumerate(lines, 1):
+            if re.search(rx, line.split("#")[0]):
+                (errors if category in FORWARD else warnings).append(
+                    f"excluded-column: uses {col!r}, which the schema excludes (line {n})")
     if ordered and "SCORE_FROM" not in src:
         errors.append("score-from: ordered workspace, but the test never reads env SCORE_FROM")
     if ordered and "scored_from" not in src:
@@ -230,6 +245,20 @@ def audit_problems(rep):
     return {k: v for k, v in rep.items() if k in ("duplicate_keys", "missing_months") and v}
 
 
+def schema():
+    s = [e for e in entries() if e["kind"] == "schema"]
+    return s[-1] if s else None
+
+
+def staged():
+    return bool(meta().get("staged"))
+
+
+def stage_closed(stage):
+    ev = [e for e in entries() if e["kind"] in ("close", "reopen") and e["stage"] == stage]
+    return bool(ev) and ev[-1]["kind"] == "close"
+
+
 def find(kind, hid):
     return [e for e in entries() if e["kind"] == kind and e.get("id") == hid]
 
@@ -275,7 +304,7 @@ def cmd_init(a):
                columns=header, split=f"ordered by {a.order_by}" if a.order_by else "random",
                explore_until=body[idx[cut - 1]][header.index(a.order_by)] if a.order_by else None, explore_rows=cut, holdout_rows=len(body) - cut,
                explore_sha=sha(WS / "explore.csv"), holdout_sha=sha(WS / "holdout.csv"),
-               order_by=a.order_by, audit=rep, holdout_budget=a.budget)
+               order_by=a.order_by, audit=rep, holdout_budget=a.budget, staged=not a.unstaged)
     print(f"workspace {WS}: explore={cut} rows, holdout={len(body) - cut} rows, seed={a.seed}")
     print(f"elephant: explore on {WS}/explore.csv only. holdout is sealed for registered tests.")
     if rep["empty_cells"]:
@@ -301,8 +330,19 @@ def cmd_register(a):
             die(f"a {a.category} claim must rest on a registered {' or '.join(RESTS_ON[a.category])} claim (--rests-on)")
     m = meta()
     ordered = bool(m.get("order_by"))
+    sc = schema()
+    if m.get("staged"):
+        if not sc:
+            die("no confirmed schema: run `profile`, agree the variable roles with the user, then `schema`")
+        i = STAGES.index(a.category)
+        open_before = [st for st in STAGES[:i] if not stage_closed(st)]
+        if open_before:
+            die(f"stages run in order: close {', '.join(open_before)} before registering {a.category} claims")
+        if stage_closed(a.category):
+            die(f"the {a.category} stage is closed; `reopen {a.category} --reason ...` to amend it (recorded)")
+    excluded = sc["roles"].get("exclude", []) if sc else []
     # 1. static: lint the test before anything runs
-    errors, warnings = lint(a.test, a.category, ordered)
+    errors, warnings = lint(a.test, a.category, ordered, excluded)
     for w in warnings:
         print(f"lint warning {w}")
     if errors:
@@ -395,7 +435,7 @@ def cmd_goldfish(a):
     for x in g_err + g_warn:
         print(f"goldfish lint: {x}")
     append("goldfish", id=a.id, agent=a.agent, test=str(a.test), test_sha=sha(a.test),
-           result=result, agrees=agrees, stdout_sha=out_sha, narrowed=a.narrowed, lint=g_err + g_warn)
+           result=result, agrees=agrees, stdout_sha=out_sha, narrowed=a.narrowed, note=a.note, lint=g_err + g_warn)
     print(f"{a.id}: goldfish {a.agent} says {result['verdict']} -> {'AGREES' if agrees else 'DISAGREES'}"
           + (f" (narrowed: {a.narrowed})" if a.narrowed else ""))
 
@@ -433,14 +473,7 @@ def cmd_extend(a):
           + (" (sealed copies kept; see revised_sample)" if revised else ""))
 
 
-def cmd_retest(a):
-    m = check_data()
-    ext = [e for e in entries() if e["kind"] == "extend"]
-    if not ext:
-        die("no fresh window; run `extend` first")
-    x = ext[-1]
-    window = f"{x['fresh_from']}..{x['fresh_to']}"
-    # history + fresh rows, so lagged tests have context; SCORE_FROM says where scoring starts
+def build_retest(m):
     col = m["columns"].index(m["order_by"])
     rows = []
     for name in ("explore", "holdout", "fresh"):
@@ -450,6 +483,17 @@ def cmd_retest(a):
         w = csv.writer(f)
         w.writerow(m["columns"])
         w.writerows(sorted(rows, key=lambda r: r[col]))
+
+
+def cmd_retest(a):
+    m = check_data()
+    ext = [e for e in entries() if e["kind"] == "extend"]
+    if not ext:
+        die("no fresh window; run `extend` first")
+    x = ext[-1]
+    window = f"{x['fresh_from']}..{x['fresh_to']}"
+    # history + fresh rows, so lagged tests have context; SCORE_FROM says where scoring starts
+    build_retest(m)
     ids = [e["id"] for e in entries() if e["kind"] == "run"] if a.id == "all" else [a.id]
 
     def pending(hid, why):
@@ -518,6 +562,168 @@ def cmd_waive(a):
     print(f"waived {a.type}: {a.reason}")
 
 
+def _num(v):
+    try:
+        float(v)
+        return True
+    except ValueError:
+        return False
+
+
+def cmd_profile(a):
+    """Describe every column of explore.csv and suggest a role; the user confirms roles with `schema`."""
+    m = meta()
+    with open(WS / "explore.csv", newline="") as f:
+        rows = list(csv.reader(f))
+    header, body = rows[0], rows[1:]
+    out = ["# Variable profile (explore data)", "",
+           f"{len(body)} rows. Suggested roles are a starting point for the conversation with the user, not a decision.", "",
+           "| column | type | distinct | empty | range or top values | suggested role |", "|---|---|---|---|---|---|"]
+    for i, h in enumerate(header):
+        vals = [r[i] for r in body if r[i].strip() not in ("", ".", "NA", "nan")]
+        numeric = bool(vals) and all(_num(v) for v in vals)
+        distinct = len(set(vals))
+        if numeric:
+            nums = [float(v) for v in vals]
+            rng = f"{min(nums):g} to {max(nums):g}"
+        else:
+            top = sorted(set(vals), key=vals.count, reverse=True)[:3]
+            rng = ", ".join(top)
+        if h == m.get("order_by"):
+            role = "time"
+        elif distinct == len(body) and not numeric:
+            role = "key"
+        elif not numeric and distinct <= 30:
+            role = "segment"
+        elif numeric and distinct > 20:
+            role = "feature or target"
+        else:
+            role = "feature"
+        out.append(f"| {h} | {'numeric' if numeric else 'text'} | {distinct} | {len(body) - len(vals)} | {rng} | {role} |")
+    (WS / "PROFILE.md").write_text("\n".join(out) + "\n")
+    append("profile", file=str(WS / "PROFILE.md"), file_sha=sha(WS / "PROFILE.md"))
+    print("\n".join(out))
+
+
+def cmd_schema(a):
+    """Record each column's role (dependent, independent, and the rest) and who confirmed it."""
+    m = check_data()
+    if [e for e in entries() if e["kind"] == "run"]:
+        die("roles are frozen once a claim has run on the holdout")
+    roles = {}
+    for role in ROLES:
+        for col in [c for c in (getattr(a, role) or "").split(",") if c]:
+            col, _, why = col.partition(":")
+            if col not in m["columns"]:
+                die(f"{col!r} is not a column")
+            roles.setdefault(role, []).append(col)
+            if why:
+                roles.setdefault("_reasons", {})[col] = why
+    if not roles.get("target"):
+        die("name at least one --target (the dependent variable)")
+    assigned = [c for r, cs in roles.items() if r != "_reasons" for c in cs]
+    per = {c: {r for r, cs in roles.items() if r != "_reasons" and c in cs} for c in assigned}
+    dup = sorted(c for c, rs in per.items() if len(rs) > 1 and rs != {"segment", "feature"})
+    if dup:
+        die(f"columns with conflicting roles: {dup} (only segment+feature may overlap)")
+    missing = [c for c in m["columns"] if c not in assigned]
+    if missing:
+        die(f"every column needs a role; unassigned: {missing}")
+    reasons = roles.pop("_reasons", {})
+    append("schema", roles=roles, reasons=reasons, confirmed_by=a.confirmed_by, notes=a.notes)
+    for r, cs in roles.items():
+        print(f"{r:8} {', '.join(cs)}")
+    print(f"confirmed by: {a.confirmed_by}")
+
+
+def cmd_close(a):
+    if not staged():
+        die("this workspace is unstaged")
+    i = STAGES.index(a.stage)
+    if any(not stage_closed(st) for st in STAGES[:i]):
+        die("close the earlier stages first")
+    if stage_closed(a.stage):
+        die(f"{a.stage} is already closed")
+    regs = [e for e in entries() if e["kind"] == "register" and e.get("category") == a.stage]
+    unrun = [r["id"] for r in regs if not find("run", r["id"]) or not find("replay", r["id"])]
+    if unrun:
+        die(f"run and replay every {a.stage} claim before closing: {unrun}")
+    waived = {(w["category"], w.get("insight_kind")) for w in entries() if w["kind"] == "waive"}
+    gaps = [k for k in TYPES[a.stage] if not any(r.get("insight_kind") == k for r in regs)
+            and (a.stage, k) not in waived and (a.stage, None) not in waived]
+    if gaps and not a.note:
+        die(f"kinds neither tested nor waived: {gaps}; waive them or close with --note saying why they are left open")
+    if not regs and (a.stage, None) not in waived:
+        die(f"no {a.stage} claims: register at least one, or `waive {a.stage} --reason ...`")
+    append("close", stage=a.stage, claims={r["id"]: status(r["id"]) for r in regs}, open_kinds=gaps, note=a.note)
+    print(f"{a.stage} closed: {len(regs)} claims, open kinds {gaps or 'none'}")
+
+
+def cmd_reopen(a):
+    if not stage_closed(a.stage):
+        die(f"{a.stage} is not closed")
+    later = [st for st in STAGES[STAGES.index(a.stage) + 1:] if stage_closed(st)]
+    append("reopen", stage=a.stage, reason=a.reason, later_closed=later)
+    print(f"{a.stage} reopened (recorded as an amendment)" + (f"; later stages already closed: {later}" if later else ""))
+
+
+def cmd_referee(a):
+    append("referee", agent=a.agent, verdict=a.verdict, report=str(a.report), report_sha=sha(a.report))
+    print(f"referee {a.agent}: {a.verdict}")
+
+
+def cmd_audit(a):
+    """Read-only re-execution of every recorded result. Writes AUDIT.md; exit code 1 on any failure."""
+    m = meta()
+    rows, fails = [], 0
+
+    def check(what, ok, detail=""):
+        nonlocal fails
+        fails += 0 if ok else 1
+        rows.append(f"| {what} | {'pass' if ok else '**FAIL**'} | {detail} |")
+
+    ok, msg, head = chain()
+    check("ledger hash chain", ok, msg)
+    for name in ("explore", "holdout"):
+        check(f"{name}.csv hash", sha(WS / f"{name}.csv") == m[f"{name}_sha"])
+    ext = [e for e in entries() if e["kind"] == "extend"]
+    if ext:
+        check("fresh.csv hash", sha(WS / "fresh.csv") == ext[-1]["fresh_sha"])
+    for e in entries():
+        k = e["kind"]
+        if k == "register":
+            check(f"{e['id']} test frozen", Path(e["test"]).exists() and sha(e["test"]) == e["test_sha"], e["test"])
+            if e.get("review"):
+                check(f"{e['id']} critic review", Path(e["review"]).exists() and sha(e["review"]) == e["review_sha"], e["review"])
+        elif k == "run":
+            reg = find("register", e["id"])[0]
+            try:
+                _, out = execute(reg["test"], WS / "holdout.csv", m["seed"])
+                check(f"{e['id']} holdout result `#{e['seq']}` re-executed", out == e["stdout_sha"], "byte-identical" if out == e["stdout_sha"] else "output differs")
+            except SystemExit as err:
+                check(f"{e['id']} holdout result `#{e['seq']}` re-executed", False, str(err)[-120:])
+        elif k == "goldfish":
+            check(f"{e['id']} replication script by {e['agent']} unchanged", Path(e["test"]).exists() and sha(e["test"]) == e["test_sha"], e["test"])
+            try:
+                _, out = execute(e["test"], WS / "holdout.csv", m["seed"])
+                check(f"{e['id']} replication by {e['agent']} `#{e['seq']}`", out == e["stdout_sha"], "byte-identical" if out == e["stdout_sha"] else "output differs")
+            except SystemExit as err:
+                check(f"{e['id']} replication by {e['agent']} `#{e['seq']}`", False, str(err)[-120:])
+        elif k == "retest" and "result" in e and ext and e["window"] == f"{ext[-1]['fresh_from']}..{ext[-1]['fresh_to']}":
+            build_retest(m)
+            reg = find("register", e["id"])[0]
+            _, out = execute(reg["test"], WS / "retest.csv", m["seed"], {"SCORE_FROM": ext[-1]["fresh_from"]})
+            check(f"{e['id']} fresh-data result `#{e['seq']}` re-executed", out == e["stdout_sha"])
+        elif k == "referee":
+            check(f"referee report by {e['agent']}", Path(e["report"]).exists() and sha(e["report"]) == e["report_sha"], e["report"])
+    text = ["# Audit", "", f"Ledger head `{head[:16]}`. Every recorded result re-executed from its frozen script and sealed data. "
+            f"{fails} failure(s).", "", "| check | result | detail |", "|---|---|---|"] + rows
+    (WS / "AUDIT.md").write_text("\n".join(text) + "\n")
+    print("\n".join(text))
+    if fails:
+        sys.exit(1)
+
+
 def cmd_lint(a):
     ordered = bool(meta().get("order_by")) if LEDGER.exists() else False
     errors, warnings = lint(a.test, a.category, ordered)
@@ -553,16 +759,24 @@ def coverage():
     return lines
 
 
-def cmd_verify(a):
-    es = entries()
+def chain():
+    """(ok, message, head) for the hash chain."""
     prev = "0" * 64
+    es = entries()
     for e in es:
         h = e.pop("hash")
         if e["prev"] != prev or hashlib.sha256(json.dumps(e, sort_keys=True).encode()).hexdigest() != h:
-            die(f"chain broken at seq {e['seq']}")
+            return False, f"chain broken at seq {e['seq']}", prev
         prev = h
+    return True, f"{len(es)} entries", prev
+
+
+def cmd_verify(a):
+    ok, msg, head = chain()
+    if not ok:
+        die(msg)
     check_data()
-    print(f"ledger intact: {len(es)} entries, head {prev[:12]}")
+    print(f"ledger intact: {msg}, head {head[:12]}")
 
 
 def cmd_report(a):
@@ -599,6 +813,143 @@ def cmd_report(a):
     print(out.read_text())
 
 
+def _res(d):
+    return ", ".join(f"{k}={v}" for k, v in d.items() if k not in ("verdict", "scored_from")) if d else ""
+
+
+def cmd_paper(a):
+    """A peer-review style write-up generated from the ledger alone: every figure cites its entry."""
+    m = meta()
+    es = entries()
+    ok, msg, head = chain()
+    regs = [e for e in es if e["kind"] == "register"]
+    sc = schema()
+    waives = [e for e in es if e["kind"] == "waive"]
+    st = {r["id"]: status(r["id"]) for r in regs}
+    est = [r for r in regs if st[r["id"]].startswith("established")]
+    L = [f"# {a.title or 'Findings: ' + Path(m['source']).name}", "",
+         f"*Generated from the evidence ledger `{LEDGER}` (head `{head[:16]}`, {msg}, chain {'intact' if ok else 'BROKEN'}). "
+         "Every number below cites the ledger entry it came from as `#n`. To check this paper, run "
+         "`python3 ledger.py audit`, which re-executes every result.*", "", "## Abstract", ""]
+    L.append(f"We registered {len(regs)} claims before testing them on held-out data, across "
+             f"{len({r.get('category') for r in regs})} insight categories. "
+             f"{len(est)} were established, {sum(v.startswith('refuted') for v in st.values())} refuted, and "
+             f"{sum(not (v.startswith('established') or v.startswith('refuted')) for v in st.values())} remain open (contested, blocked or untested).")
+    if est:
+        L += ["", "Established findings:", ""]
+        for r in est:
+            nar = [g["narrowed"] for g in find("goldfish", r["id"]) if g.get("narrowed")]
+            L.append(f"- **{r['id']}** ({r.get('category')}/{r.get('insight_kind')}): {r['claim']}" + (f" *Narrowed to: {nar[-1]}.*" if nar else ""))
+    # 1 Data
+    L += ["", "## 1. Data", "",
+          f"- Source: `{m['source']}`, sha256 `{m['source_sha'][:16]}`, {m['rows']} rows, {len(m['columns'])} columns.",
+          f"- Split (`#{0}`): {m.get('split', 'random')}, seed {m['seed']}; {m['explore_rows']} rows for exploration, "
+          f"{m['holdout_rows']} sealed for confirmation" + (f" (exploration up to {m['explore_until']})" if m.get("explore_until") else "") + ".",
+          f"- Data audit before sealing: {json.dumps(m.get('audit', {}))}."]
+    ext = [e for e in es if e["kind"] == "extend"]
+    if ext:
+        x = ext[-1]
+        L.append(f"- Fresh data added after sealing (`#{x['seq']}`): {x['fresh_from']} to {x['fresh_to']}, {x['fresh_rows']} rows; {x['revised_rows']} sealed rows revised at source.")
+    if sc:
+        L += ["", f"### 1.1 Variables (`#{sc['seq']}`, confirmed by {sc['confirmed_by']})", "", "| role | columns | meaning |", "|---|---|---|"]
+        for role, cols in sc["roles"].items():
+            why = "; ".join(f"{c}: {sc['reasons'][c]}" for c in cols if c in sc.get("reasons", {}))
+            L.append(f"| {role} | {', '.join(cols)} | {ROLES[role]}" + (f" ({why})" if why else "") + " |")
+        if sc.get("notes"):
+            L += ["", sc["notes"]]
+    # 2 Methods
+    runs = [e for e in es if e["kind"] == "run"]
+    L += ["", "## 2. Methods", "",
+          "Each claim was written down with its kill criterion and the decision it informs, reviewed by a critic agent that saw no data, "
+          "and frozen (its test script hashed) before its single look at the sealed holdout. Registration required the test to pass a "
+          "lint for future-peeking and leaky code, a smoke run on exploration data, and a mutation gate: on copies of the data with the "
+          "claimed pattern destroyed, the test had to report falsified at least 4 times in 5. Results were replayed byte-for-byte, then "
+          "replicated by independent agents who saw only the claim and the holdout and wrote their own method. Prescriptive claims count "
+          "only if the claim they rest on is established.", "",
+          f"- Holdout looks used: {len(runs)}" + (f" of a budget of {m['holdout_budget']}" if m.get("holdout_budget") else "") + ".",
+          f"- Claims registered: {len(regs)} (the multiple-comparisons count; thresholds were set per claim at registration).",
+          f"- Replicating agents: {', '.join(sorted({g['agent'] for g in es if g['kind'] == 'goldfish'})) or 'none'}."]
+    closes = [e for e in es if e["kind"] in ("close", "reopen")]
+    if closes:
+        L.append("- Stage log: " + "; ".join(f"`#{c['seq']}` {c['kind']} {c['stage']}" + (f" ({c.get('reason')})" if c['kind'] == 'reopen' else "") for c in closes) + ".")
+    # 3 Results
+    L += ["", "## 3. Results"]
+    for n, cat in enumerate(STAGES, 1):
+        group = [r for r in regs if r.get("category") == cat]
+        L += ["", f"### 3.{n} {cat.capitalize()}", ""]
+        if not group:
+            w = [x["reason"] for x in waives if x["category"] == cat and not x.get("insight_kind")]
+            L.append(f"No claims. " + (f"Waived: {w[-1]}" if w else "Not covered."))
+            continue
+        for r in group:
+            run, reps, fish, rt = find("run", r["id"]), find("replay", r["id"]), find("goldfish", r["id"]), find("retest", r["id"])
+            L += [f"#### {r['id']}: {r['claim']}", "",
+                  f"- **Status: {st[r['id']]}.** Type {cat}/{r.get('insight_kind')}" + (f", rests on {', '.join(r['rests_on'])}" if r.get("rests_on") else "") + ".",
+                  f"- Decision it informs: {r.get('decision')}.",
+                  f"- Pre-registered (`#{r['seq']}`): predicted {r['prediction']}; falsified if {r['falsify_if']}. Test `{r['test']}` sha `{r['test_sha'][:12]}`."]
+            gates = []
+            if r.get("smoke"):
+                gates.append(f"smoke run on exploration data {r['smoke']['verdict']}")
+            for mu in r.get("mutants") or []:
+                gates.append(f"mutant {mu['mutant']} killed {mu['killed']}/5" + ("" if mu.get("informative", True) else " (uninformative)"))
+            if r.get("no_mutant"):
+                gates.append(f"no mutant: {r['no_mutant']}")
+            if r.get("lint_warnings"):
+                gates.append(f"lint warnings: {'; '.join(r['lint_warnings'])}")
+            if gates:
+                L.append(f"- Gates: {'; '.join(gates)}.")
+            if run:
+                L.append(f"- Holdout result (`#{run[0]['seq']}`): **{run[0]['result']['verdict']}**, {_res(run[0]['result'])}."
+                         + (f" Replay `#{reps[-1]['seq']}` {'byte-identical' if reps[-1]['identical'] else 'DIVERGED'}." if reps else " Not replayed."))
+            for g in fish:
+                L.append(f"- Replication by {g['agent']} (`#{g['seq']}`): {g['result']['verdict']} ({'agrees' if g['agrees'] else 'DISAGREES'}); "
+                         f"method: {g['result'].get('method', 'see script')}; {_res({k: v for k, v in g['result'].items() if k != 'method'})}."
+                         + (f" Reviewer note: {g['note']}" if g.get("note") else "") + (f" Narrowed: {g['narrowed']}." if g.get("narrowed") else ""))
+            for x in rt[-1:]:
+                L.append(f"- Fresh data (`#{x['seq']}`, {x['window']}): " + (f"pending ({x['pending']})." if "pending" in x else f"{x['result']['verdict']}, {_res(x['result'])}."))
+            L.append("")
+    # 4 Threats
+    L += ["## 4. Threats to validity", ""]
+    threats = []
+    if not sc:
+        threats.append("No variable roles were confirmed, so leaky predictors were not screened.")
+    elif "elephant" in sc["confirmed_by"].lower() or "agent" in sc["confirmed_by"].lower():
+        threats.append(f"Variable roles were confirmed by {sc['confirmed_by']}, not by a domain owner.")
+    for x in waives:
+        threats.append(f"Not testable with this data: {x['category']}{'/' + x['insight_kind'] if x.get('insight_kind') else ''}: {x['reason']}")
+    for c in [e for e in es if e["kind"] == "close" and e.get("open_kinds")]:
+        threats.append(f"{c['stage'].capitalize()} kinds left open at close (`#{c['seq']}`): {', '.join(c['open_kinds'])}. {c.get('note') or ''}".strip())
+    for r in regs:
+        v = st[r["id"]]
+        if not (v.startswith("established") or v.startswith("refuted")):
+            threats.append(f"{r['id']} is {v}.")
+        if r.get("smoke", {}).get("verdict") == "falsified":
+            threats.append(f"{r['id']} already failed on exploration data before registration, so its mutation gate says nothing.")
+        if not r.get("review"):
+            threats.append(f"{r['id']} was not reviewed by a critic before registration.")
+        if not find("goldfish", r["id"]):
+            threats.append(f"{r['id']} has no independent replication.")
+    for e in [e for e in es if e["kind"] == "reopen"]:
+        threats.append(f"The {e['stage']} stage was reopened (`#{e['seq']}`): {e['reason']}.")
+    if a.notes and Path(a.notes).exists():
+        threats.append(f"Analyst notes: see `{a.notes}`.")
+    L += [f"- {t}" for t in threats] or ["- None recorded."]
+    # 5 Review
+    L += ["", "## 5. Peer review", ""]
+    revs = sorted({r["review"] for r in regs if r.get("review")})
+    L += [f"- Critic review before testing: `{p}`." for p in revs] or ["- No critic reviews recorded."]
+    for e in [e for e in es if e["kind"] == "referee"]:
+        L.append(f"- Referee report by {e['agent']} (`#{e['seq']}`): **{e['verdict']}**. `{e['report']}`.")
+    # Appendix
+    L += ["", "## Appendix A. Reproduce", "", "```bash", "python3 ledger.py verify", "```", "", "```bash", "python3 ledger.py audit", "```", "",
+          "`audit` re-runs every frozen test and every replication against the sealed data and checks each output is byte-identical to the "
+          "recorded one. It changes nothing and writes `AUDIT.md`.", "",
+          "## Appendix B. Ledger index", "", "| # | entry | claim | hash |", "|---|---|---|---|"]
+    L += [f"| {e['seq']} | {e['kind']} | {e.get('id') or e.get('stage') or ''} | `{e['hash'][:12]}` |" for e in es]
+    (WS / "PAPER.md").write_text("\n".join(L) + "\n")
+    print(f"wrote {WS / 'PAPER.md'} ({len(L)} lines)")
+
+
 def row(r):
     run = find("run", r["id"])
     res = f"`#{run[0]['seq']}` " + ", ".join(f"{k}={v}" for k, v in run[0]["result"].items() if k != "verdict") if run else ""
@@ -626,6 +977,7 @@ def main():
     i.add_argument("--order-by", help="column to sort by for a time split (explore earliest rows, hold out the latest)")
     i.add_argument("--budget", type=int, help="max confirmatory looks at the holdout across all claims")
     i.add_argument("--allow-gaps", action="store_true", help="seal despite gaps or duplicate keys (recorded)")
+    i.add_argument("--unstaged", action="store_true", help="skip the schema and stage gates (not for audited work)")
     r = s.add_parser("register"); r.add_argument("id"); r.add_argument("--claim", required=True)
     r.add_argument("--prediction", required=True); r.add_argument("--falsify-if", required=True)
     r.add_argument("--test", required=True)
@@ -643,11 +995,24 @@ def main():
     g = s.add_parser("goldfish"); g.add_argument("id"); g.add_argument("--test", required=True)
     g.add_argument("--agent", default="goldfish-1")
     g.add_argument("--narrowed", help="the narrower reading under which the goldfish found the claim holds")
+    g.add_argument("--note", help="the goldfish's sentence on what was ambiguous or interpreted")
     s.add_parser("extend").add_argument("data")
     s.add_parser("retest").add_argument("id", help="a claim id, or `all`")
     w = s.add_parser("waive"); w.add_argument("type", help="category or category/kind")
     w.add_argument("--reason", required=True, help="why this data cannot support that type")
     li = s.add_parser("lint"); li.add_argument("test"); li.add_argument("--category", required=True, choices=list(TYPES))
+    s.add_parser("profile")
+    sc = s.add_parser("schema")
+    for role, what in ROLES.items():
+        sc.add_argument(f"--{role}", help=f"comma-separated columns: {what} (col:reason allowed)")
+    sc.add_argument("--confirmed-by", required=True, help="who agreed these roles (the user, a domain owner)")
+    sc.add_argument("--notes", help="anything the roles alone do not say")
+    c = s.add_parser("close"); c.add_argument("stage", choices=STAGES); c.add_argument("--note")
+    ro = s.add_parser("reopen"); ro.add_argument("stage", choices=STAGES); ro.add_argument("--reason", required=True)
+    rf = s.add_parser("referee"); rf.add_argument("--report", required=True); rf.add_argument("--agent", required=True)
+    rf.add_argument("--verdict", required=True, choices=["accept", "minor-revisions", "major-revisions", "reject"])
+    pa = s.add_parser("paper"); pa.add_argument("--title"); pa.add_argument("--notes", help="path to analyst notes to cite")
+    s.add_parser("audit")
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
     globals()[f"cmd_{a.cmd}"](a)

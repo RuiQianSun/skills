@@ -1,6 +1,6 @@
 ---
 name: elephant-goldfish-analyst
-description: Analyse a dataset into testable, falsifiable, traceable, repeatable insights. An elephant agent holds the full context and an append-only evidence ledger; fresh-context goldfish subagents critique each claim before it is tested and re-test it blind after. For time series, claims are re-tested on every new data release. Use when the user wants insights, findings, or a data analysis they can trust, check, or rerun, or wants insight generation automated.
+description: Analyse any tabular dataset into testable, falsifiable, traceable, repeatable insights, from confirmed variable roles through descriptive, diagnostic, predictive and prescriptive stages to an auditable paper. An elephant agent holds the full context and an append-only evidence ledger; fresh-context goldfish subagents critique each claim before it is tested, re-test it blind after, and referee the paper. For time series, claims are re-tested on every new data release. Use when the user wants insights, findings, or a data analysis they can trust, check, or rerun, or wants insight generation automated.
 argument-hint: "A dataset path, plus an optional question"
 ---
 
@@ -16,29 +16,45 @@ The ledger is `scripts/ledger.py` (beside this file, stdlib Python). It owns the
 - **Traceable**: the ledger is hash-chained (`verify` checks it) and pins every data file's hash. `report` builds `analysis/INSIGHTS.md` from ledger entries alone, each figure citing its entry number.
 - **Repeatable**: `replay` reruns a claim and checks its output is byte-identical. `retest` reruns the frozen test on data published after the seal.
 
-## The loop
+## The flow
 
-1. **Know the domain.** Write `analysis/KNOWN.md`: what any practitioner in this domain already knows (for retail tyres, "winter is slow, changeover seasons peak"). Ask the user for it when they are the domain expert. A claim that only restates `KNOWN.md` is trivia: register it only if it quantifies something a decision needs.
-2. **Init.** `ledger.py init <data.csv> --budget <n>` audits the data (gaps, duplicate keys, empty cells) and refuses to seal a broken time index; fix the source rather than pass `--allow-gaps`. It then splits the data once into `explore.csv` and `holdout.csv`. For time series, pass `--order-by <date column>` so you explore the past and confirm on the future. Set the budget at about twice the claims you plan. From here you read `explore.csv` only.
-3. **Plan coverage.** Read `ledger.py types` and, for each category, note the kinds this data could support. Explore with that map in hand, so you go looking for an attribution, a leading indicator and a policy, not only the patterns that jump out. Every category ends with at least one claim, or a `ledger.py waive <category>[/<kind>] --reason "..."` saying what the data lacks (no intervention to study, no outcome a policy could be scored on). A waiver is a finding: it tells the user what data would unlock that type.
-4. **Explore.** Profile `explore.csv` freely. Write down candidate claims as you go, and keep a count of how many things you looked at; it is your multiple-comparisons budget.
-5. **Sharpen.** Turn each candidate into a claim a stranger could test: a category and kind, a direction, an effect size, a statistic, a kill threshold that meets the kind's evidence standard, and the decision it would change. Word a descriptive claim as what happened, never why; word a driver as "moves with", never "causes". Set thresholds you would be embarrassed to miss, corrected across everything you register. Prefer three strong claims over ten weak ones, and register at least one you expect to fail.
-6. **Critique.** Dispatch a **critic** goldfish with the critic brief below; one critic may take the whole batch of claims, since it sees no data either way. Save its reply for each claim to `analysis/reviews/<id>.md`. Tighten the claim where it lands a hit: wording broader than the test, a threshold a known fact clears for free, a decision the claim does not actually bear on.
-7. **Confirm.** For each claim: write `analysis/tests/<id>.py`, then `register --review analysis/reviews/<id>.md --mutant <spec>` (for time series also `--min-fresh <rows>`, the fresh data a fair retest needs, such as 36 months for a claim about years), then `run`, `replay`. `register` refuses a test that fails three mechanical gates, so fix the test rather than argue: the **lint** (future-peeking code in a predictive or prescriptive test, files other than env `DATA`, unseeded randomness, a missing `SCORE_FROM`), the **smoke run** on `explore.csv`, and the **mutation** gate. A mutant is a copy of the explore data with the claimed structure destroyed, and the test must call at least 4 of 5 mutants falsified. Pick the mutant that destroys exactly what the claim asserts: `shuffle-months` for a seasonal or timing claim, `shuffle-years` for a trend, `swap:A,B` for a comparison or composition, `permute:COL` for a driver, `shuffle-rows` for a forecast. Use `--no-mutant "<reason>"` only for an exact count on a frozen table.
-8. **Test blind.** For each claim that ran, dispatch a **tester** goldfish with the tester brief below, all in parallel, one per claim. Where the harness lets you choose a model, run at least one tester on a different model from yours, so agreement is not one model's priors agreeing with themselves. Record each with `ledger.py goldfish <id> --test analysis/goldfish/<id>.py --agent <name>`, adding `--narrowed "<reading>"` when the tester reports one.
-9. **Reconcile.** A tester that disagrees has found something: a bug in your test, a claim worded more loosely than you tested it, or an effect that exists for only one way of measuring it. Read its script, decide which, and register a corrected claim under a new id rather than editing the old one. Disagreement stays in the ledger as `contested`.
-10. **Report.** `ledger.py verify`, then `ledger.py report`. Present `analysis/INSIGHTS.md`, which groups claims by category and ends with a coverage map: established insights first (quoting the narrowed reading where there is one), each with the decision it informs; refuted claims next (they are findings too); contested claims and hunches last, labelled as such; then the coverage gaps and what data would close them. Every number you quote in prose comes from the report.
-11. **Keep testing.** For time series, each new data release is a holdout nobody has seen. Pull it, then `ledger.py extend <new full file>` (it seals the new rows as `fresh.csv` and counts rows the source revised), `ledger.py retest all`, and `report`. A claim that **broke on fresh data** goes back to step 8. This step is what to schedule when the user wants the analysis to run on its own.
+Three phases. A **checkpoint** is where you stop and wait for the user.
+
+### Set up
+
+1. **Know the domain.** Write `analysis/KNOWN.md`: what any practitioner in this domain already knows (for retail tyres, "winter is slow, changeover seasons peak"). Ask the user, who is usually the domain expert. A claim that only restates `KNOWN.md` is trivia: register it only if it quantifies something a decision needs.
+2. **Seal.** `ledger.py init <data.csv> --budget <n>` audits the data (gaps, duplicate keys, empty cells) and refuses to seal a broken time index; fix the source rather than pass `--allow-gaps`. It splits the data once into `explore.csv` and `holdout.csv`: at random for cross-sectional data, by date with `--order-by <column>` for time series, so you explore the past and confirm on the future. Set the budget at about twice the claims you plan. From here you read `explore.csv` only.
+3. **Assign roles (checkpoint).** `ledger.py profile` describes every column and suggests a role. Propose to the user which column is the **target** (the dependent variable), which are **features** (independent variables), and which are time, keys, segments, or **excluded**: anything recorded after the outcome, a restatement of the target, or junk. Leakage hides here, so ask about each feature's timing: "is this known before the outcome happens?" Wait for the user's answer, then record it with `ledger.py schema --target ... --feature ... --exclude col:reason ... --confirmed-by "<who>"`. Every column needs a role, and roles freeze once a claim has run. The lint then blocks any forecast or rule that touches an excluded column.
+
+### Four stages, in order
+
+Run the stage cycle below for **descriptive** (what happened), then **diagnostic** (why), then **predictive** (what next), then **prescriptive** (what to do). The ledger enforces the order: a stage's claims can be registered only once every earlier stage is closed, so each stage builds on findings that are already settled. Later claims can rest on earlier ones with `--rests-on`, and a prescriptive claim must.
+
+1. **Plan coverage.** Read this stage's kinds in `ledger.py types` and note which the data could support, so you look for an attribution, a leading indicator or a policy, not only the patterns that jump out.
+2. **Explore.** Work on `explore.csv` with the confirmed roles in hand: describe the target and features, then relate features to the target. Keep a count of how many things you looked at; it is your multiple-comparisons budget.
+3. **Sharpen.** Turn each candidate into a claim a stranger could test: a kind, a direction, an effect size, a statistic, a kill threshold that meets the kind's evidence standard, and the decision it would change. Word a descriptive claim as what happened, never why; word a driver as "moves with", never "causes". Set thresholds you would be embarrassed to miss. Prefer three strong claims over ten weak ones, and register at least one you expect to fail.
+4. **Critique.** Dispatch a **critic** goldfish with the critic brief below; one critic may take the stage's whole batch, since it sees no data either way. Save its reply to `analysis/reviews/<stage>.md` and tighten each claim where it lands a hit.
+5. **Confirm.** For each claim: write `analysis/tests/<id>.py`, then `register --category <stage> --kind ... --review analysis/reviews/<stage>.md --mutant <spec>` (for time series also `--min-fresh <rows>`, the fresh data a fair retest needs, such as 36 months for a claim about years), then `run`, `replay`. `register` refuses a test that fails three mechanical gates, so fix the test rather than argue: the **lint** (future-peeking code or excluded columns in a predictive or prescriptive test, files other than env `DATA`, unseeded randomness, a missing `SCORE_FROM`), the **smoke run** on `explore.csv`, and the **mutation** gate. A mutant is a copy of the explore data with the claimed structure destroyed, and the test must call at least 4 of 5 mutants falsified. Pick the mutant that destroys exactly what the claim asserts: `permute:<target>` for any feature-to-target link, `permute:COL` for one driver, `swap:A,B` for a comparison or composition, `shuffle-months` for seasonality or timing, `shuffle-years` for a trend, `shuffle-rows` for a forecast. Use `--no-mutant "<reason>"` only for an exact count on a frozen table.
+6. **Test blind.** For each claim that ran, dispatch a **tester** goldfish with the tester brief below, all in parallel, one per claim. Where the harness lets you choose a model, run at least one tester on a different model from yours. Record each with `ledger.py goldfish <id> --test analysis/goldfish/<id>.py --agent <name> --note "<its ambiguity sentence>"`, adding `--narrowed "<reading>"` when it gives one.
+7. **Reconcile.** A tester that disagrees has found something: a bug in your test, a claim worded more loosely than you tested it, or an effect that exists for only one way of measuring it. Read its script, decide which, and register a corrected claim under a new id. Disagreement stays in the ledger as `contested`.
+8. **Close.** `ledger.py close <stage>`. It refuses while any claim is unrun or unreplayed, and while any kind is neither tested nor waived, unless you pass `--note` saying why those kinds stay open. Waive what the data cannot support with `ledger.py waive <stage>[/<kind>] --reason "..."`: a waiver tells the user what data would unlock that type. A closed stage is frozen; `reopen <stage> --reason` amends it on the record.
+
+### Publish
+
+1. **Write the paper.** `ledger.py paper --title "..."` writes `analysis/PAPER.md` from the ledger alone, laid out like a peer-reviewed paper: abstract, data and variable roles, methods, results by stage (each claim with its pre-registration, gates, holdout result, replications, reviewer notes and fresh-data result), threats to validity, peer review, and reproduction steps. Every figure cites its ledger entry.
+2. **Referee (checkpoint).** Dispatch a **referee** goldfish with the referee brief below. Save its report to `analysis/reviews/referee-<n>.md` and record it with `ledger.py referee --report ... --agent ... --verdict ...`. Answer each point by registering new claims (`reopen` the stage first), by waiving, or by explaining in the reply to the user why not. Regenerate the paper after revisions.
+3. **Audit and hand over.** Run `ledger.py audit`: it re-executes every frozen test and every replication against the sealed data and writes `analysis/AUDIT.md`. Hand the user `PAPER.md` and `AUDIT.md`. Lead your summary with the established findings and the decision each informs, then the refuted ones, then the threats to validity. Every number you quote comes from the paper.
+4. **Keep testing.** For time series, each new data release is a holdout nobody has seen. Pull it, then `ledger.py extend <new full file>`, `ledger.py retest all`, and `ledger.py paper`. A claim that **broke** or **revived** on fresh data goes back to its stage's reconcile step. This is the part to schedule when the user wants the analysis to run on its own.
 
 ## The verification layers
 
 Checks are layered from cheapest to dearest, and each catches what the one above cannot. Push every check as high as it will go: a rule enforced in code costs nothing per claim, while one enforced only by this prose costs your attention every time.
 
 1. **Structure** (the ledger's design): sealed explore/holdout split, frozen hashed tests, one look per claim, holdout budget, typed claims, prescriptive claims blocked on their support, hash-chained ledger.
-2. **Static checks** (instant, deterministic): the data audit at `init`, the lint, the output contract, type and dependency validation.
-3. **Runtime verification** (seconds, deterministic): smoke run, mutation gate, holdout run, byte-identical replay, retests on fresh data.
-4. **Agent judgment** (minutes, a model call each): the critic, the testers on more than one model, your reconciling. Mutation asks "is there a pattern at all?"; only the critic asks "is it more than the pattern everyone already knows?", and only the critic catches a horizon leak, so neither layer replaces the other.
-5. **Human review** (the user's time): which established insights matter, what goes in `KNOWN.md`, and field tests of prescriptive claims.
+2. **Static checks** (instant, deterministic): the data audit at `init`, the confirmed variable roles, stage order, the lint (including excluded columns), the output contract, type and dependency validation.
+3. **Runtime verification** (seconds, deterministic): smoke run, mutation gate, holdout run, byte-identical replay, retests on fresh data, and the read-only `audit` that re-executes everything.
+4. **Agent judgment** (minutes, a model call each): the critic, the testers on more than one model, the referee, your reconciling. Mutation asks "is there a pattern at all?"; only the critic asks "is it more than the pattern everyone already knows?", and only the critic catches a horizon leak, so neither layer replaces the other.
+5. **Human review** (the user's time): confirming variable roles, which established insights matter, what goes in `KNOWN.md`, and field tests of prescriptive claims.
 
 What still rests on prose alone: reading only `explore.csv` until a claim is registered, honest thresholds, and novelty. Treat them as the weakest links.
 
@@ -87,3 +103,23 @@ give that reading on its own line starting NARROWED:.
 ```
 
 The tester's ambiguity sentence and NARROWED line are the most valuable part of its reply: they are how you learn that a claim you thought was sharp was not.
+
+## The referee brief
+
+```
+You are a goldfish referee: you know nothing about this analysis beyond the paper. Review it as
+you would a submission to a journal.
+
+Paper: <absolute path to analysis/PAPER.md>
+You may run, from <absolute path to the working directory>:
+  python3 <absolute path to ledger.py> audit
+and read any file the paper cites. Do not edit anything.
+
+Write a referee report with:
+1. VERDICT: accept, minor-revisions, major-revisions or reject.
+2. Claims the evidence does not support as worded, with the entry numbers.
+3. Variable roles you doubt, especially any feature that might be recorded after the outcome.
+4. Analyses a careful reviewer would expect and the paper lacks.
+5. Anything in the audit that failed or that you could not reproduce.
+Keep each point to one or two sentences, most important first.
+```
