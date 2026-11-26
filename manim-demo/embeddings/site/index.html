@@ -1,0 +1,763 @@
+<title>Embedding Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+  /* Layout: a dark instrument panel. The projector is the hero; clips, analogies and RAG follow as worked examples. */
+  :root {
+    color-scheme: dark;
+    --bg: #16171b;
+    --panel: #1e2026;
+    --panel-2: #24272e;
+    --line: #30343d;
+    --fg: #e9e7e3;
+    --muted: #9ba1ab;
+    --accent: #f2c94c;
+    --accent-ink: #1b1a14;
+    --query: #ffffff;
+    --link: #8fb4ff;
+    --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --radius: 10px;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+  .page { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+  h1, h2 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(30px, 5vw, 44px); letter-spacing: -0.01em; }
+  h2 { font-size: clamp(22px, 3vw, 28px); }
+  h3 { font-size: 15px; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  .lede { color: var(--muted); max-width: 68ch; font-size: 16px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; }
+  .head { display: grid; gap: 10px; }
+  .section { display: grid; gap: 16px; }
+  .section > .intro { display: grid; gap: 6px; max-width: 72ch; }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  a { color: var(--link); }
+  button, select, input { font: inherit; color: var(--fg); }
+  button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible, video:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Projector */
+  .proj { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+  .proj-main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .tlabel { font-size: 12px; color: var(--muted); }
+  .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .stage { position: relative; min-height: 440px; background: radial-gradient(ellipse at 50% 45%, var(--panel-2), var(--panel) 70%); }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .stage canvas.dragging { cursor: grabbing; }
+  .tip { position: absolute; z-index: 2; pointer-events: none; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; max-width: 260px; }
+  .tip b { font-weight: 600; }
+  .stage-note { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: transparent; cursor: pointer; color: var(--fg); }
+  .chip[aria-pressed="false"] { opacity: .4; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+
+  .side { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto auto 1fr; min-width: 0; }
+  .side-block { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  .sel-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+  .sel-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .sel-text { font-size: 13px; color: var(--muted); }
+  .nn { list-style: none; margin: 0; padding: 0 12px 12px; display: grid; gap: 2px; overflow-y: auto; max-height: 420px; }
+  .nn li button { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; background: transparent; border: 0; padding: 5px 6px; border-radius: 6px; text-align: left; cursor: pointer; }
+  .nn li button:hover { background: var(--panel-2); }
+  .nn .bar { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .nn .bar i { display: block; height: 100%; background: var(--accent); }
+  .nn .lab { font-size: 13px; overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; }
+  .nn .val { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .k-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .k-row input { flex: 1; accent-color: var(--accent); }
+
+  /* Clips */
+  .clips { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+  .clip { display: grid; gap: 8px; align-content: start; }
+  .clip video { width: 100%; aspect-ratio: 16 / 9; max-width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #000; display: block; }
+  .clip p { font-size: 13px; color: var(--muted); }
+
+  /* Analogy and RAG panels */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; min-width: 0; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+  .eq { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--font-mono); }
+  .eq input { width: 8.5em; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-family: var(--font-mono); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .results { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .results li { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 4px 10px; align-items: center; }
+  .results .rank { font-family: var(--font-mono); color: var(--muted); font-size: 12px; }
+  .results .bar { grid-column: 2 / -1; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .results .bar i { display: block; height: 100%; background: var(--accent); }
+  .results .val { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+  .results .txt { font-size: 13px; color: var(--muted); grid-column: 2 / -1; }
+  .err { color: var(--accent); font-size: 13px; }
+  select.q { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  pre.prompt { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow-y: auto; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .foot { color: var(--muted); font-size: 13px; max-width: 76ch; display: grid; gap: 6px; }
+
+  @media (max-width: 860px) {
+    .proj { grid-template-columns: 1fr; }
+    .side { border-left: 0; border-top: 1px solid var(--line); }
+    .stage { min-height: 360px; }
+    .nn { max-height: 300px; }
+  }
+</style>
+
+<div class="page">
+  <header class="head">
+    <p class="eyebrow">Word and text embeddings, retrieval</p>
+    <h1>Embedding Explorer</h1>
+    <p class="lede">A language model turns each word or passage into 384 numbers. Things with similar meaning get similar numbers, which is what search and retrieval-augmented generation (RAG) are built on. Everything below uses real vectors from the all-MiniLM-L6-v2 model.</p>
+  </header>
+
+  <section class="section" id="projector" aria-labelledby="projector-h">
+    <div class="intro">
+      <h2 id="projector-h">The projector</h2>
+      <p class="muted">240 words and 40 short passages, squeezed from 384 dimensions down to 3 so you can see them. Drag to turn, scroll or pinch to zoom, click a point to see its nearest neighbors. Neighbors are measured in the full 384 dimensions, so they are more trustworthy than how close points look.</p>
+    </div>
+    <div class="proj">
+      <div class="proj-main">
+        <div class="toolbar">
+          <span class="tlabel">Projection</span>
+          <div class="seg" role="group" aria-label="Projection method">
+            <button type="button" id="m-tsne" data-method="tsne" aria-pressed="true">t-SNE</button>
+            <button type="button" id="m-pca" data-method="pca" aria-pressed="false">PCA</button>
+          </div>
+          <div class="seg" role="group" aria-label="Dimensions">
+            <button type="button" id="d-3" data-dims="3" aria-pressed="true">3D</button>
+            <button type="button" id="d-2" data-dims="2" aria-pressed="false">2D</button>
+          </div>
+          <span class="tlabel">Show</span>
+          <div class="seg" role="group" aria-label="Which points">
+            <button type="button" id="s-word" data-show="word" aria-pressed="true">Words</button>
+            <button type="button" id="s-passage" data-show="passage" aria-pressed="false">Passages</button>
+            <button type="button" id="s-all" data-show="all" aria-pressed="false">Both</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="opt-labels"> All labels</label>
+          <label class="chk"><input type="checkbox" id="opt-spin" checked> Turn slowly</label>
+        </div>
+        <div class="stage" id="stage">
+          <canvas id="canvas" tabindex="0" aria-label="3D scatter of word and passage embeddings"></canvas>
+          <div class="tip" id="tip" hidden></div>
+          <p class="stage-note" id="stage-note"></p>
+        </div>
+        <div class="legend" id="legend" aria-label="Groups, select to show or hide"></div>
+      </div>
+      <aside class="side" aria-label="Selected point">
+        <div class="side-block">
+          <label class="tlabel" for="search">Find a word or passage</label>
+          <input class="search" id="search" list="search-list" placeholder="Try king, coffee or Waggle dance" autocomplete="off">
+          <datalist id="search-list"></datalist>
+        </div>
+        <div class="side-block" id="sel-block">
+          <p class="sel-title" id="sel-title">king</p>
+          <p class="sel-meta" id="sel-meta"></p>
+          <p class="sel-text" id="sel-text" hidden></p>
+          <div class="k-row"><label for="k">Neighbors</label><input type="range" id="k" min="3" max="20" value="10"><span class="mono" id="k-val">10</span></div>
+          <label class="chk"><input type="checkbox" id="opt-isolate"> Fade everything else</label>
+        </div>
+        <ol class="nn" id="nn" aria-label="Nearest neighbors by cosine similarity"></ol>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section" id="clips" aria-labelledby="clips-h">
+    <div class="intro">
+      <h2 id="clips-h">The ideas, animated</h2>
+      <p class="muted">Rendered with ManimGL, 3Blue1Brown’s animation library, from the same vectors the projector uses.</p>
+    </div>
+    <div class="clips">
+      <figure class="clip" style="margin:0">
+        <video src="clips/words-as-vectors.mp4" poster="clips/words-as-vectors.jpg" controls muted playsinline preload="none" aria-label="Animation: words become vectors"></video>
+        <h3>Words become vectors</h3>
+        <p>king − man + woman lands nearest queen, because the model encodes “female” and “royal” as directions.</p>
+      </figure>
+      <figure class="clip" style="margin:0">
+        <video src="clips/cosine-similarity.mp4" poster="clips/cosine-similarity.jpg" controls muted playsinline preload="none" aria-label="Animation: cosine similarity"></video>
+        <h3>Similar meaning, similar direction</h3>
+        <p>Cosine similarity compares directions. dog and puppy score 0.80; dog and taxi score 0.32.</p>
+      </figure>
+      <figure class="clip" style="margin:0">
+        <video src="clips/word-cloud-3d.mp4" poster="clips/word-cloud-3d.jpg" controls muted playsinline preload="none" aria-label="Animation: the word cloud in 3D"></video>
+        <h3>The whole vocabulary in 3D</h3>
+        <p>t-SNE flattens 384 dimensions to 3 while keeping neighbors together, so groups form clusters.</p>
+      </figure>
+      <figure class="clip" style="margin:0">
+        <video src="clips/rag-pipeline.mp4" poster="clips/rag-pipeline.jpg" controls muted playsinline preload="none" aria-label="Animation: the RAG pipeline"></video>
+        <h3>Retrieval-augmented generation</h3>
+        <p>The question is embedded, the nearest passages are pulled out, and they go into the prompt as context.</p>
+      </figure>
+    </div>
+  </section>
+
+  <div class="two">
+    <section class="card" id="analogy" aria-labelledby="analogy-h">
+      <div class="intro" style="display:grid;gap:6px">
+        <h2 id="analogy-h">Vector arithmetic</h2>
+        <p class="muted">Take one word’s vector, subtract another, add a third, and look for the nearest word. It works when the model has learned a shared direction, such as country to capital.</p>
+      </div>
+      <form class="eq" id="analogy-form">
+        <input id="a-a" list="word-list" value="king" aria-label="Start with">
+        <span>−</span>
+        <input id="a-b" list="word-list" value="man" aria-label="Subtract">
+        <span>+</span>
+        <input id="a-c" list="word-list" value="woman" aria-label="Add">
+        <button class="btn primary" type="submit">Find nearest</button>
+        <datalist id="word-list"></datalist>
+      </form>
+      <div class="presets" id="presets">
+        <button type="button" class="btn" data-a="king" data-b="man" data-c="woman">king − man + woman</button>
+        <button type="button" class="btn" data-a="Paris" data-b="France" data-c="Japan">Paris − France + Japan</button>
+        <button type="button" class="btn" data-a="puppy" data-b="dog" data-c="cat">puppy − dog + cat</button>
+        <button type="button" class="btn" data-a="prince" data-b="boy" data-c="girl">prince − boy + girl</button>
+        <button type="button" class="btn" data-a="Berlin" data-b="Germany" data-c="Kenya">Berlin − Germany + Kenya</button>
+      </div>
+      <p class="err" id="analogy-err" hidden></p>
+      <ol class="results" id="analogy-out" aria-live="polite"></ol>
+      <p class="muted" style="font-size:13px">The three input words are left out of the results, as is usual for this test.</p>
+    </section>
+
+    <section class="card" id="rag" aria-labelledby="rag-h">
+      <div class="intro" style="display:grid;gap:6px">
+        <h2 id="rag-h">RAG, step by step</h2>
+        <p class="muted">Pick a question. Its vector is compared with all 40 passages, and the closest ones become the context for a language model.</p>
+      </div>
+      <select class="q" id="q" aria-label="Question"></select>
+      <div class="k-row"><label for="rk">Passages to retrieve</label><input type="range" id="rk" min="1" max="6" value="3"><span class="mono" id="rk-val">3</span></div>
+      <ol class="results" id="rag-out" aria-live="polite"></ol>
+      <div class="row">
+        <button type="button" class="btn" id="rag-show">Show in the projector</button>
+        <button type="button" class="btn" id="rag-copy">Copy prompt</button>
+      </div>
+      <pre class="prompt" id="prompt" aria-label="Prompt sent to the language model"></pre>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <p>Model: all-MiniLM-L6-v2, 384 dimensions, mean pooled and normalized. Vectors are stored at 8-bit precision for this page, so cosines can differ from the full model in the second decimal place. PCA here shows only <span class="mono" id="pca-var">14%</span> of the variation in the data, which is why t-SNE clusters look cleaner. The passages and questions were written for this demo.</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const PALETTE = ['#6f9bff', '#ff9a5c', '#46c79a', '#d18cf0', '#f2c94c', '#5fd0e8', '#ff7b93', '#a9b4ff', '#a6d65a', '#e8a877', '#8fb8c4'];
+  const TOPIC_COLORS = { 'Coffee brewing': '#c98a4a', 'Honeybees': '#f2c94c', 'The solar system': '#6f9bff', 'Bicycles': '#46c79a' };
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (id) => document.getElementById(id);
+
+  const S = {
+    data: null, vec: [], qvec: [], items: [], method: 'tsne', dims: 3, show: 'word', hidden: new Set(),
+    sel: null, k: 10, isolate: false, allLabels: false, spin: !reduceMotion,
+    yaw: 0.6, pitch: 0.35, zoom: 1, panX: 0, panY: 0, hover: null, query: null, proj: [],
+  };
+
+  function decode(b64, dims) {
+    const bin = atob(b64);
+    const out = [];
+    for (let i = 0; i < bin.length; i += dims) {
+      const v = new Float32Array(dims);
+      let n = 0;
+      for (let j = 0; j < dims; j++) {
+        let b = bin.charCodeAt(i + j);
+        if (b > 127) b -= 256;
+        v[j] = b / 127;
+        n += v[j] * v[j];
+      }
+      n = Math.sqrt(n) || 1;
+      for (let j = 0; j < dims; j++) v[j] /= n;
+      out.push(v);
+    }
+    return out;
+  }
+  const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  const colorOf = (it) => it.kind === 'passage' ? TOPIC_COLORS[it.group] : PALETTE[S.wordGroups.indexOf(it.group) % PALETTE.length];
+
+  function neighbors(v, k, filter, skip) {
+    const out = [];
+    S.items.forEach((it, i) => {
+      if (filter && !filter(it)) return;
+      if (skip && skip.has(i)) return;
+      out.push([i, dot(v, S.vec[i])]);
+    });
+    out.sort((a, b) => b[1] - a[1]);
+    return out.slice(0, k);
+  }
+
+  // ---------- Projector ----------
+  const canvas = $('canvas');
+  const ctx = canvas.getContext('2d');
+  const stage = $('stage');
+  const tip = $('tip');
+
+  function visible(it, i) {
+    if (S.hidden.has(it.group)) return false;
+    if (S.show === 'all') return true;
+    return it.kind === S.show;
+  }
+  function coords(i) {
+    const p = S.data[S.method][i];
+    return S.dims === 2 ? [p[0], p[1], 0] : p;
+  }
+  function queryCoords() {
+    if (!S.query) return null;
+    const v = S.query.vec;
+    if (S.method === 'pca') {
+      const d = S.data;
+      const c = d.pca_components.map((row) => { let s = 0; for (let j = 0; j < row.length; j++) s += (v[j] - d.pca_mean[j]) * row[j]; return s; });
+      const p = c.map((x, a) => (x - d.pca_center[a]) / d.pca_scale);
+      return S.dims === 2 ? [p[0], p[1], 0] : p;
+    }
+    // t-SNE cannot place a new point exactly: use the similarity-weighted mean of its three nearest passages.
+    const nn = neighbors(v, 3, (it) => it.kind === 'passage');
+    let w = 0; const p = [0, 0, 0];
+    nn.forEach(([i, s]) => { const c = coords(i); const ww = Math.max(0.01, s); w += ww; for (let a = 0; a < 3; a++) p[a] += c[a] * ww; });
+    return p.map((x) => x / w);
+  }
+
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(r.width * dpr);
+    canvas.height = Math.round(r.height * dpr);
+    S.W = r.width; S.H = r.height; S.dpr = dpr;
+    draw();
+  }
+
+  // Recenter and rescale to the points on screen, so a subset fills the view.
+  const fits = new Map();
+  function fit() {
+    const key = [S.method, S.dims, S.show, [...S.hidden].sort().join(',')].join('|');
+    if (fits.has(key)) return fits.get(key);
+    const pts = S.items.map((it, i) => (visible(it, i) ? coords(i) : null)).filter(Boolean);
+    const c = [0, 1, 2].map((a) => (pts.length ? pts.reduce((s, p) => s + p[a], 0) / pts.length : 0));
+    let m = 0;
+    pts.forEach((p) => { for (let a = 0; a < 3; a++) m = Math.max(m, Math.abs(p[a] - c[a])); });
+    const f = { c, k: m ? 1 / m : 1 };
+    fits.set(key, f);
+    return f;
+  }
+
+  function project(raw) {
+    const F = fit();
+    const p = [0, 1, 2].map((a) => (raw[a] - F.c[a]) * F.k);
+    const s = Math.min(S.W, S.H) * 0.42 * S.zoom;
+    if (S.dims === 2) return [S.W / 2 + (p[0] + S.panX) * s, S.H / 2 - (p[1] + S.panY) * s, 0];
+    const cy = Math.cos(S.yaw), sy = Math.sin(S.yaw), cp = Math.cos(S.pitch), sp = Math.sin(S.pitch);
+    const x1 = p[0] * cy - p[2] * sy, z1 = p[0] * sy + p[2] * cy;
+    const y2 = p[1] * cp - z1 * sp, z2 = p[1] * sp + z1 * cp;
+    const k = 4 / (4 + z2);
+    return [S.W / 2 + (x1 + S.panX) * s * k, S.H / 2 - (y2 + S.panY) * s * k, z2];
+  }
+
+  function draw() {
+    if (!S.data || !S.W) return;
+    const { dpr } = S;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, S.W, S.H);
+    const nnSet = new Map();
+    let focus = null;
+    if (S.sel != null) {
+      focus = S.vec[S.sel];
+      neighbors(focus, S.k, (it) => visible(it), new Set([S.sel])).forEach(([i, s], r) => nnSet.set(i, r));
+    }
+    let ragSet = new Map();
+    if (S.query) {
+      neighbors(S.query.vec, S.query.k, (it) => it.kind === 'passage').forEach(([i], r) => ragSet.set(i, r));
+    }
+    // Axes in 3D: three faint lines through the origin.
+    if (S.dims === 3) {
+      ctx.lineWidth = 1;
+      [[1, 0, 0], [0, 1, 0], [0, 0, 1]].forEach((a) => {
+        const F = fit();
+        const p0 = project(a.map((x, j) => F.c[j] - x / F.k)), p1 = project(a.map((x, j) => F.c[j] + x / F.k));
+        ctx.strokeStyle = 'rgba(155,161,171,0.18)';
+        ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+      });
+    }
+    S.proj = [];
+    S.items.forEach((it, i) => {
+      if (!visible(it, i)) return;
+      const p = project(coords(i));
+      S.proj.push({ i, x: p[0], y: p[1], z: p[2] });
+    });
+    S.proj.sort((a, b) => b.z - a.z);
+    const qp = S.query ? project(queryCoords()) : null;
+    // Lines from the selection or query to its neighbors.
+    const linkFrom = (from, set) => {
+      ctx.lineWidth = 1;
+      S.proj.forEach((pt) => {
+        if (!set.has(pt.i)) return;
+        ctx.strokeStyle = 'rgba(242,201,76,0.55)';
+        ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(pt.x, pt.y); ctx.stroke();
+      });
+    };
+    if (S.sel != null) { const sp = S.proj.find((p) => p.i === S.sel); if (sp) linkFrom([sp.x, sp.y], nnSet); }
+    if (qp) linkFrom(qp, ragSet);
+    const dimOthers = (S.isolate && S.sel != null) || S.query;
+    S.proj.forEach((pt) => {
+      const it = S.items[pt.i];
+      const isSel = pt.i === S.sel, isNN = nnSet.has(pt.i) || ragSet.has(pt.i), isHover = S.hover === pt.i;
+      const depth = S.dims === 3 ? Math.max(0.35, Math.min(1, 0.75 - pt.z * 0.35)) : 1;
+      ctx.globalAlpha = dimOthers && !isSel && !isNN ? 0.12 : depth;
+      const r = (it.kind === 'passage' ? 5 : 3.6) * (isSel || isHover ? 1.7 : isNN ? 1.3 : 1);
+      ctx.fillStyle = colorOf(it);
+      ctx.beginPath();
+      if (it.kind === 'passage') ctx.rect(pt.x - r, pt.y - r, r * 2, r * 2); else ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSel || isHover) { ctx.globalAlpha = 1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke(); }
+    });
+    ctx.globalAlpha = 1;
+    // Labels.
+    ctx.font = '12px Inter, system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    S.proj.forEach((pt) => {
+      const show = S.allLabels || pt.i === S.sel || nnSet.has(pt.i) || ragSet.has(pt.i) || pt.i === S.hover;
+      if (!show) return;
+      const it = S.items[pt.i];
+      const strong = pt.i === S.sel || pt.i === S.hover;
+      ctx.globalAlpha = S.allLabels && !strong && !nnSet.has(pt.i) && !ragSet.has(pt.i) ? (dimOthers ? 0.15 : 0.7) : 1;
+      ctx.font = (strong ? '600 13px' : '12px') + ' Inter, system-ui, sans-serif';
+      ctx.fillStyle = strong ? '#ffffff' : '#e9e7e3';
+      ctx.fillText(it.label, pt.x + 8, pt.y);
+    });
+    ctx.globalAlpha = 1;
+    if (qp) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      for (let a = 0; a < 10; a++) {
+        const rr = a % 2 ? 4 : 10, t = -Math.PI / 2 + a * Math.PI / 5;
+        ctx.lineTo(qp[0] + rr * Math.cos(t), qp[1] + rr * Math.sin(t));
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.font = '600 13px Inter, system-ui, sans-serif';
+      ctx.fillText('Your question', qp[0] + 13, qp[1] - 12);
+    }
+  }
+
+  // Interaction
+  let drag = null, raf = 0, last = 0;
+  function loop(t) {
+    raf = 0;
+    const dt = last ? Math.min(50, t - last) : 16; last = t;
+    if (S.spin && S.dims === 3 && !drag) S.yaw += dt * 0.00018;
+    draw();
+    if (S.spin && S.dims === 3 && !document.hidden && onScreen) raf = requestAnimationFrame(loop); else last = 0;
+  }
+  const kick = () => { if (!raf) raf = requestAnimationFrame(loop); };
+  let onScreen = true;
+  new IntersectionObserver((e) => { onScreen = e[0].isIntersecting; if (onScreen) kick(); }).observe(canvas);
+
+  function pick(x, y, radius) {
+    let best = null, bd = radius * radius;
+    for (let k = S.proj.length - 1; k >= 0; k--) {
+      const p = S.proj[k];
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bd) { bd = d; best = p.i; }
+    }
+    return best;
+  }
+  const pointers = new Map();
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    drag = { x: e.clientX, y: e.clientY, yaw: S.yaw, pitch: S.pitch, panX: S.panX, panY: S.panY, moved: false, zoom: S.zoom, dist: null };
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (drag) {
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (drag.dist == null) drag.dist = dist;
+        S.zoom = Math.max(0.4, Math.min(6, drag.zoom * dist / drag.dist));
+        drag.moved = true;
+        draw();
+        return;
+      }
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (S.dims === 3) {
+        S.yaw = drag.yaw + dx * 0.008;
+        S.pitch = Math.max(-1.5, Math.min(1.5, drag.pitch + dy * 0.008));
+      } else {
+        const s = Math.min(S.W, S.H) * 0.42 * S.zoom;
+        S.panX = drag.panX + dx / s; S.panY = drag.panY - dy / s;
+      }
+      tip.hidden = true;
+      draw();
+      return;
+    }
+    const h = pick(x, y, 12);
+    if (h !== S.hover) { S.hover = h; draw(); }
+    if (h == null) { tip.hidden = true; return; }
+    const it = S.items[h];
+    tip.replaceChildren();
+    const b = document.createElement('b'); b.textContent = it.label;
+    const g = document.createElement('div'); g.className = 'muted'; g.textContent = (it.kind === 'passage' ? 'Passage · ' : 'Word · ') + it.group;
+    tip.append(b, g);
+    if (it.kind === 'passage') { const t = document.createElement('div'); t.textContent = it.text; t.style.marginTop = '4px'; tip.append(t); }
+    tip.hidden = false;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.max(4, Math.min(S.W - tw - 4, x + 14)) + 'px';
+    tip.style.top = Math.max(4, Math.min(S.H - th - 4, y + 14)) + 'px';
+  });
+  const endDrag = (e) => {
+    pointers.delete(e.pointerId);
+    if (!drag) return;
+    const wasClick = !drag.moved && pointers.size === 0;
+    if (pointers.size === 0) { drag = null; canvas.classList.remove('dragging'); }
+    if (wasClick) {
+      const r = canvas.getBoundingClientRect();
+      const h = pick(e.clientX - r.left, e.clientY - r.top, 14);
+      if (h != null) select(h);
+    } else if (S.spin) { $('opt-spin').checked = false; S.spin = false; }
+    kick();
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', () => { if (!drag) { S.hover = null; tip.hidden = true; draw(); } });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    S.zoom = Math.max(0.4, Math.min(6, S.zoom * Math.exp(-e.deltaY * 0.0015)));
+    draw();
+  }, { passive: false });
+  canvas.addEventListener('keydown', (e) => {
+    const step = 0.12;
+    if (e.key === 'ArrowLeft') S.yaw -= step;
+    else if (e.key === 'ArrowRight') S.yaw += step;
+    else if (e.key === 'ArrowUp') S.pitch = Math.max(-1.5, S.pitch - step);
+    else if (e.key === 'ArrowDown') S.pitch = Math.min(1.5, S.pitch + step);
+    else if (e.key === '+' || e.key === '=') S.zoom = Math.min(6, S.zoom * 1.15);
+    else if (e.key === '-') S.zoom = Math.max(0.4, S.zoom / 1.15);
+    else return;
+    e.preventDefault(); draw();
+  });
+  new ResizeObserver(resize).observe(stage);
+
+  // ---------- Side panel ----------
+  function select(i) {
+    S.sel = i;
+    const it = S.items[i];
+    if (!visible(it, i)) { S.hidden.delete(it.group); setShow(S.show === 'all' || S.show === it.kind ? S.show : 'all'); }
+    $('sel-title').textContent = it.label;
+    const meta = $('sel-meta');
+    const d = document.createElement('span'); d.className = 'dot'; d.style.background = colorOf(it);
+    meta.replaceChildren(d, document.createTextNode((it.kind === 'passage' ? 'Passage · ' : 'Word · ') + it.group));
+    const txt = $('sel-text');
+    txt.hidden = it.kind !== 'passage';
+    txt.textContent = it.kind === 'passage' ? it.text : '';
+    renderNN();
+    draw();
+  }
+  function renderNN() {
+    if (S.sel == null) return;
+    const list = neighbors(S.vec[S.sel], S.k, (it) => visible(it), new Set([S.sel]));
+    $('nn').replaceChildren(...list.map(([i, s]) => {
+      const it = S.items[i];
+      const li = document.createElement('li');
+      const b = document.createElement('button'); b.type = 'button';
+      const lab = document.createElement('span'); lab.className = 'lab';
+      const d = document.createElement('span'); d.className = 'dot'; d.style.background = colorOf(it);
+      lab.append(d, document.createTextNode(it.label));
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = s.toFixed(3);
+      const bar = document.createElement('span'); bar.className = 'bar';
+      const fill = document.createElement('i'); fill.style.width = Math.max(0, s) * 100 + '%'; bar.append(fill);
+      b.append(lab, val, bar);
+      b.addEventListener('click', () => select(i));
+      li.append(b);
+      return li;
+    }));
+  }
+  function setShow(v) {
+    S.show = v;
+    document.querySelectorAll('[data-show]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === v)));
+    renderLegend();
+    renderNN();
+    draw();
+  }
+  function renderLegend() {
+    const groups = [];
+    if (S.show !== 'passage') groups.push(...S.wordGroups);
+    if (S.show !== 'word') groups.push(...Object.keys(TOPIC_COLORS));
+    $('legend').replaceChildren(...groups.map((g) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip';
+      b.setAttribute('aria-pressed', String(!S.hidden.has(g)));
+      const d = document.createElement('span'); d.className = 'dot';
+      d.style.background = TOPIC_COLORS[g] || PALETTE[S.wordGroups.indexOf(g) % PALETTE.length];
+      b.append(d, document.createTextNode(g + (TOPIC_COLORS[g] ? ' (passages)' : '')));
+      b.addEventListener('click', () => {
+        if (S.hidden.has(g)) S.hidden.delete(g); else S.hidden.add(g);
+        b.setAttribute('aria-pressed', String(!S.hidden.has(g)));
+        renderNN(); draw();
+      });
+      return b;
+    }));
+  }
+  function updateNote() {
+    const v = S.data.pca_variance;
+    $('stage-note').textContent = S.method === 'pca'
+      ? `PCA: these ${S.dims} axes hold ${(v.slice(0, S.dims).reduce((a, b) => a + b, 0) * 100).toFixed(1)}% of the variation`
+      : 't-SNE: keeps near neighbors together; distances between clusters mean little';
+  }
+
+  document.querySelectorAll('[data-method]').forEach((b) => b.addEventListener('click', () => {
+    S.method = b.dataset.method;
+    document.querySelectorAll('[data-method]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+    updateNote(); draw();
+  }));
+  document.querySelectorAll('[data-dims]').forEach((b) => b.addEventListener('click', () => {
+    S.dims = Number(b.dataset.dims);
+    S.panX = 0; S.panY = 0;
+    document.querySelectorAll('[data-dims]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+    updateNote(); draw(); kick();
+  }));
+  document.querySelectorAll('[data-show]').forEach((b) => b.addEventListener('click', () => { S.query = null; setShow(b.dataset.show); }));
+  $('opt-labels').addEventListener('change', (e) => { S.allLabels = e.target.checked; draw(); });
+  $('opt-spin').addEventListener('change', (e) => { S.spin = e.target.checked; kick(); });
+  $('opt-isolate').addEventListener('change', (e) => { S.isolate = e.target.checked; draw(); });
+  $('k').addEventListener('input', (e) => { S.k = Number(e.target.value); $('k-val').textContent = S.k; renderNN(); draw(); });
+  $('search').addEventListener('change', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const i = S.items.findIndex((it) => it.label.toLowerCase() === q);
+    if (i >= 0) { S.query = null; select(i); }
+  });
+
+  // ---------- Analogies ----------
+  function runAnalogy(a, b, c) {
+    const idx = (w) => S.items.findIndex((it) => it.kind === 'word' && it.label.toLowerCase() === w.trim().toLowerCase());
+    const ia = idx(a), ib = idx(b), ic = idx(c);
+    const err = $('analogy-err');
+    const missing = [[a, ia], [b, ib], [c, ic]].filter(([, i]) => i < 0).map(([w]) => `“${w}”`);
+    if (missing.length) {
+      err.textContent = `${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} not in the 240-word vocabulary. Pick from the list as you type.`;
+      err.hidden = false; $('analogy-out').replaceChildren(); return;
+    }
+    err.hidden = true;
+    const v = new Float32Array(S.data.dims);
+    for (let j = 0; j < v.length; j++) v[j] = S.vec[ia][j] - S.vec[ib][j] + S.vec[ic][j];
+    const n = Math.hypot(...v); for (let j = 0; j < v.length; j++) v[j] /= n;
+    const res = neighbors(v, 5, (it) => it.kind === 'word', new Set([ia, ib, ic]));
+    $('analogy-out').replaceChildren(...res.map(([i, s], r) => {
+      const li = document.createElement('li');
+      const rk = document.createElement('span'); rk.className = 'rank'; rk.textContent = r + 1;
+      const w = document.createElement('button'); w.type = 'button'; w.className = 'btn'; w.style.justifySelf = 'start';
+      w.textContent = S.items[i].label;
+      w.title = 'Show in the projector';
+      w.addEventListener('click', () => { S.query = null; select(i); $('projector').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' }); });
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = s.toFixed(3);
+      const bar = document.createElement('span'); bar.className = 'bar';
+      const fill = document.createElement('i'); fill.style.width = Math.max(0, s) * 100 + '%'; bar.append(fill);
+      li.append(rk, w, val, bar);
+      return li;
+    }));
+  }
+  $('analogy-form').addEventListener('submit', (e) => { e.preventDefault(); runAnalogy($('a-a').value, $('a-b').value, $('a-c').value); });
+  document.querySelectorAll('#presets [data-a]').forEach((b) => b.addEventListener('click', () => {
+    $('a-a').value = b.dataset.a; $('a-b').value = b.dataset.b; $('a-c').value = b.dataset.c;
+    runAnalogy(b.dataset.a, b.dataset.b, b.dataset.c);
+  }));
+
+  // ---------- RAG ----------
+  let ragK = 3;
+  function runRag() {
+    const qi = Number($('q').value);
+    const q = S.data.questions[qi];
+    const res = neighbors(S.qvec[qi], ragK, (it) => it.kind === 'passage');
+    $('rag-out').replaceChildren(...res.map(([i, s], r) => {
+      const it = S.items[i];
+      const li = document.createElement('li');
+      const rk = document.createElement('span'); rk.className = 'rank'; rk.textContent = r + 1;
+      const t = document.createElement('span');
+      const d = document.createElement('span'); d.className = 'dot'; d.style.background = colorOf(it); d.style.marginRight = '6px';
+      const strong = document.createElement('b'); strong.textContent = it.label;
+      const g = document.createElement('span'); g.className = 'muted'; g.textContent = ' · ' + it.group;
+      t.append(d, strong, g);
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = s.toFixed(3);
+      const bar = document.createElement('span'); bar.className = 'bar';
+      const fill = document.createElement('i'); fill.style.width = Math.max(0, s) * 100 + '%'; bar.append(fill);
+      const txt = document.createElement('span'); txt.className = 'txt'; txt.textContent = it.text;
+      li.append(rk, t, val, bar, txt);
+      return li;
+    }));
+    const ctxText = res.map(([i], r) => `[${r + 1}] ${S.items[i].label}: ${S.items[i].text}`).join('\n\n');
+    $('prompt').textContent = `Answer the question using only the context below. If the context does not contain the answer, say so.\n\nContext:\n${ctxText}\n\nQuestion: ${q.label}`;
+    if (S.query) { S.query = { vec: S.qvec[qi], k: ragK }; draw(); }
+  }
+  $('q').addEventListener('change', runRag);
+  $('rk').addEventListener('input', (e) => { ragK = Number(e.target.value); $('rk-val').textContent = ragK; runRag(); });
+  $('rag-show').addEventListener('click', () => {
+    const qi = Number($('q').value);
+    S.sel = null;
+    $('opt-isolate').checked = false; S.isolate = false;
+    setShow('passage');
+    S.query = { vec: S.qvec[qi], k: ragK };
+    $('sel-title').textContent = S.data.questions[qi].label;
+    $('sel-meta').textContent = 'Question · retrieved passages are linked by yellow lines';
+    $('sel-text').hidden = true;
+    const res = neighbors(S.qvec[qi], 10, (it) => it.kind === 'passage');
+    $('nn').replaceChildren(...res.map(([i, s]) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button'); b.type = 'button';
+      const lab = document.createElement('span'); lab.className = 'lab';
+      const d = document.createElement('span'); d.className = 'dot'; d.style.background = colorOf(S.items[i]);
+      lab.append(d, document.createTextNode(S.items[i].label));
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = s.toFixed(3);
+      const bar = document.createElement('span'); bar.className = 'bar';
+      const fill = document.createElement('i'); fill.style.width = Math.max(0, s) * 100 + '%'; bar.append(fill);
+      b.append(lab, val, bar);
+      b.addEventListener('click', () => { S.query = null; select(i); });
+      li.append(b);
+      return li;
+    }));
+    draw();
+    $('projector').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
+  });
+  $('rag-copy').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    try { await navigator.clipboard.writeText($('prompt').textContent); btn.textContent = 'Copied'; }
+    catch {
+      const r = document.createRange(); r.selectNodeContents($('prompt'));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      btn.textContent = 'Selected, press Ctrl+C';
+    }
+    setTimeout(() => { btn.textContent = 'Copy prompt'; }, 1800);
+  });
+
+  // ---------- Load ----------
+  fetch('projector.json').then((r) => r.json()).then((d) => {
+    S.data = d;
+    S.items = d.items;
+    S.vec = decode(d.vectors_int8, d.dims);
+    S.qvec = d.questions.map((q) => decode(q.vector_int8, d.dims)[0]);
+    S.wordGroups = [...new Set(d.items.filter((it) => it.kind === 'word').map((it) => it.group))];
+    const opt = (v) => { const o = document.createElement('option'); o.value = v; return o; };
+    $('search-list').replaceChildren(...d.items.map((it) => opt(it.label)));
+    $('word-list').replaceChildren(...d.items.filter((it) => it.kind === 'word').map((it) => opt(it.label)));
+    $('q').replaceChildren(...d.questions.map((q, i) => { const o = new Option(q.label, String(i)); return o; }));
+    const v = d.pca_variance;
+    $('pca-var').textContent = (v.reduce((a, b) => a + b, 0) * 100).toFixed(1) + '%';
+    renderLegend();
+    updateNote();
+    resize();
+    select(S.items.findIndex((it) => it.label === 'king'));
+    runAnalogy('king', 'man', 'woman');
+    $('q').value = String(d.questions.findIndex((q) => q.label.startsWith('Why is Venus')));
+    runRag();
+    kick();
+  }).catch(() => {
+    $('stage-note').textContent = 'The embedding data did not load. Reload the page to try again.';
+  });
+})();
+</script>
