@@ -154,6 +154,7 @@ def mutate(spec, header, body, key, rng):
         if arg not in header:
             die(f"mutant permute:{arg}: no such column")
         c = header.index(arg)
+        idx = [i for i, r in enumerate(body) if r[c].strip() not in ("", ".", "NA", "nan")]  # rows where this column is filled, whatever else is blank
         col = [body[i][c] for i in idx]
         rng.shuffle(col)
         for i, v in zip(idx, col):
@@ -639,7 +640,8 @@ def cmd_profile(a):
             rng = ", ".join(v for v, _ in Counter(vals).most_common(3))
         if h == m.get("order_by"):
             role = "time"
-        elif distinct == len(body) and (not numeric or all(float(v).is_integer() for v in vals)):
+        elif distinct == len(body) and (not numeric or (all(float(v).is_integer() for v in vals)
+                                                         and any(k in h.lower() for k in ("id", "key", "code", "number")))):
             role = "key"
         elif not numeric and distinct <= 30:
             role = "segment"

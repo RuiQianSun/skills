@@ -315,6 +315,17 @@ class HistoryModeTests(unittest.TestCase):
             self.assertIn("0 failure(s)", ws.ok("audit"))
 
 
+class MutantTests(unittest.TestCase):
+    def test_permute_reaches_rows_with_blanks_in_other_columns(self):
+        import importlib.util, random as _r
+        spec = importlib.util.spec_from_file_location("ledger", LEDGER); led = importlib.util.module_from_spec(spec); spec.loader.exec_module(led)
+        header = ["k", "x", "y"]
+        body = [[str(i), str(i), "" if i % 2 else "1"] for i in range(200)]  # y blank in half the rows
+        out = led.mutate("permute:x", header, body, None, _r.Random(1))
+        moved = sum(1 for a, b in zip(body, out) if a[1] != b[1] and a[2] == "")
+        self.assertGreater(moved, 50)  # rows with a blank y are shuffled too
+
+
 class SeedTests(unittest.TestCase):
     def test_a_verdict_that_flips_with_the_seed_is_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
