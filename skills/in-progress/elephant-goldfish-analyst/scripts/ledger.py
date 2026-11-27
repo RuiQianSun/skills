@@ -578,7 +578,8 @@ def status(hid):
             return f"blocked: rests on {pid} ({status(pid)})"
     run = find("run", hid)
     if not run:
-        return "registered"
+        sk = find("skip", hid)
+        return f"not tested: {sk[-1]['reason']}" if sk else "registered"
     if run[0]["result"]["verdict"] == "falsified":
         base = "falsified"
     else:
@@ -695,7 +696,7 @@ def cmd_close(a):
     if stage_closed(a.stage):
         die(f"{a.stage} is already closed")
     regs = [e for e in entries() if e["kind"] == "register" and e.get("category") == a.stage]
-    unrun = [r["id"] for r in regs if not find("run", r["id"]) or not find("replay", r["id"])]
+    unrun = [r["id"] for r in regs if not find("skip", r["id"]) and (not find("run", r["id"]) or not find("replay", r["id"]))]
     if unrun:
         die(f"run and replay every {a.stage} claim before closing: {unrun}")
     waived = {(w["category"], w.get("insight_kind")) for w in entries() if w["kind"] == "waive"}
@@ -728,6 +729,16 @@ def cmd_supersede(a):
             die(f"{x} is not registered")
     append("supersede", id=a.id, by=a.by, reason=a.reason)
     print(f"{a.id} superseded by {a.by}")
+
+
+def cmd_skip(a):
+    """A registered claim deliberately left untested (for example by a fixed-sequence testing rule)."""
+    if not find("register", a.id):
+        die(f"{a.id} is not registered")
+    if find("run", a.id):
+        die(f"{a.id} already ran; it cannot be skipped")
+    append("skip", id=a.id, reason=a.reason)
+    print(f"{a.id}: skipped ({a.reason})")
 
 
 def cmd_withdraw(a):
@@ -1185,6 +1196,7 @@ def main():
     s.add_parser("audit")
     su = s.add_parser("supersede"); su.add_argument("id"); su.add_argument("--by", required=True); su.add_argument("--reason", required=True)
     wd = s.add_parser("withdraw"); wd.add_argument("id"); wd.add_argument("--reason", required=True)
+    sp = s.add_parser("skip"); sp.add_argument("id"); sp.add_argument("--reason", required=True)
     se = s.add_parser("seeds"); se.add_argument("id", help="a claim id, or `all`"); se.add_argument("--n", type=int, default=3, help="seeds to try besides seed 1")
     s.add_parser("types"); s.add_parser("verify"); s.add_parser("report")
     a = p.parse_args()
